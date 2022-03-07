@@ -31,8 +31,6 @@ class MPERunner(Runner):
                 obs, rewards, dones, infos = self.envs.step(actions_env)
 
                 data = obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic
-                
-                self.add_reward(step)
 
                 # insert data into buffer
                 self.insert(data)
@@ -93,22 +91,6 @@ class MPERunner(Runner):
 
         self.buffer.share_obs[0] = share_obs.copy()
         self.buffer.obs[0] = obs.copy()
-
-    @torch.no_grad()
-    def add_reward(self, step):
-        self.trainer.prep_rollout()
-        z_log_prob, rnn_state_z = self.trainer.policy.evaluate_z(
-            np.concatenate(self.buffer.share_obs[step]),
-            np.concatenate(self.buffer.rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step]),
-            need_rnn=True
-        )
-        # [self.envs, agents, dim]
-        z_log_probs = np.array(np.split(_t2n(z_log_prob), self.n_rollout_threads))
-        rnn_states_z = np.array(np.split(_t2n(rnn_state_z), self.n_rollout_threads))
-
-        self.buffer.rnn_states_z[self.buffer.step] = rnn_states_z.copy()
-        self.buffer.rewards[self.buffer.step-1] -= z_log_probs.copy()
 
     @torch.no_grad()
     def collect(self, step):

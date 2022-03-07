@@ -284,4 +284,7 @@ def get_config():
     # pretrained parameters
     parser.add_argument("--model_dir", type=str, default=None, help="by default None. set the path to pretrained model.")
 
+    # vmapd para
+    parser.add_argument("--max_z", type=int, default=2, help="the number of latent code z")
+
     return parser

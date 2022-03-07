@@ -9,6 +9,7 @@ from pathlib import Path
 import torch
 from onpolicy.config import get_config
 from onpolicy.envs.mpe.MPE_env import MPEEnv
+from onpolicy.envs.mpe.VMAPD_wrapper import VMAPDWrapper
 from onpolicy.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
 
 """Train script for MPEs."""
@@ -18,6 +19,7 @@ def make_train_env(all_args):
         def init_env():
             if all_args.env_name == "MPE":
                 env = MPEEnv(all_args)
+                env = VMAPDWrapper(env, all_args.max_z)
             else:
                 print("Can not support the " +
                       all_args.env_name + "environment.")
@@ -36,6 +38,7 @@ def make_eval_env(all_args):
         def init_env():
             if all_args.env_name == "MPE":
                 env = MPEEnv(all_args)
+                env = VMAPDWrapper(env, all_args.max_z)
             else:
                 print("Can not support the " +
                       all_args.env_name + "environment.")

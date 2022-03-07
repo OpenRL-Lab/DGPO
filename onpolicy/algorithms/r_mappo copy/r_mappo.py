@@ -101,7 +101,7 @@ class R_MAPPO():
         :return actor_grad_norm: (torch.Tensor) gradient norm from actor update.
         :return imp_weights: (torch.Tensor) importance sampling weights.
         """
-        share_obs_batch, obs_batch, rnn_states_batch, rnn_states_z_batch, rnn_states_critic_batch, actions_batch, \
+        share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
         value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
         adv_targ, available_actions_batch = sample
 
@@ -160,22 +160,6 @@ class R_MAPPO():
             critic_grad_norm = get_gard_norm(self.policy.critic.parameters())
 
         self.policy.critic_optimizer.step()
-
-        # discriminator update
-        discri_loss, _ = self.policy.evaluate_z(
-            share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
-        
-        self.policy.discri_optimizer.zero_grad()
-
-        if update_actor:
-            discri_loss.mean().backward()
-
-        if self._use_max_grad_norm:
-            actor_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
-        else:
-            actor_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
-
-        self.policy.discri_optimizer.step()
 
         return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights
 

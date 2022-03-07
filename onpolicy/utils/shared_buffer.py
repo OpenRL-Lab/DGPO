@@ -50,6 +50,7 @@ class SharedReplayBuffer(object):
             (self.episode_length + 1, self.n_rollout_threads, num_agents, self.recurrent_N, self.hidden_size),
             dtype=np.float32)
         self.rnn_states_critic = np.zeros_like(self.rnn_states)
+        self.rnn_states_z = np.zeros_like(self.rnn_states)
 
         self.value_preds = np.zeros(
             (self.episode_length + 1, self.n_rollout_threads, num_agents, 1), dtype=np.float32)
@@ -150,6 +151,7 @@ class SharedReplayBuffer(object):
         """Copy last timestep data to first index. Called after update to model."""
         self.share_obs[0] = self.share_obs[-1].copy()
         self.obs[0] = self.obs[-1].copy()
+        self.rnn_states_z[0] = self.rnn_states_z[-1].copy()
         self.rnn_states[0] = self.rnn_states[-1].copy()
         self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
         self.masks[0] = self.masks[-1].copy()
@@ -162,6 +164,7 @@ class SharedReplayBuffer(object):
         """Copy last timestep data to first index. This method is used for Hanabi."""
         self.rnn_states[0] = self.rnn_states[-1].copy()
         self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
+        self.rnn_states_z[0] = self.rnn_states_z[-1].copy()
         self.masks[0] = self.masks[-1].copy()
         self.bad_masks[0] = self.bad_masks[-1].copy()
 
@@ -414,9 +417,9 @@ class SharedReplayBuffer(object):
         # rnn_states = _cast(self.rnn_states[:-1])
         # rnn_states_critic = _cast(self.rnn_states_critic[:-1])
         rnn_states = self.rnn_states[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.rnn_states.shape[3:])
-        rnn_states_critic = self.rnn_states_critic[:-1].transpose(1, 2, 0, 3, 4).reshape(-1,
-                                                                                         *self.rnn_states_critic.shape[
-                                                                                          3:])
+        rnn_states_z = self.rnn_states_z[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.rnn_states_z.shape[3:])
+        rnn_states_critic = \
+            self.rnn_states_critic[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.rnn_states_critic.shape[3:])
 
         if self.available_actions is not None:
             available_actions = _cast(self.available_actions[:-1])
@@ -425,6 +428,7 @@ class SharedReplayBuffer(object):
             share_obs_batch = []
             obs_batch = []
             rnn_states_batch = []
+            rnn_states_z_batch = []
             rnn_states_critic_batch = []
             actions_batch = []
             available_actions_batch = []
@@ -452,6 +456,7 @@ class SharedReplayBuffer(object):
                 adv_targ.append(advantages[ind:ind + data_chunk_length])
                 # size [T+1 N M Dim]-->[T N M Dim]-->[N M T Dim]-->[N*M*T,Dim]-->[1,Dim]
                 rnn_states_batch.append(rnn_states[ind])
+                rnn_states_z_batch.append(rnn_states_z[ind])
                 rnn_states_critic_batch.append(rnn_states_critic[ind])
 
             L, N = data_chunk_length, mini_batch_size
@@ -472,6 +477,7 @@ class SharedReplayBuffer(object):
 
             # States is just a (N, -1) from_numpy
             rnn_states_batch = np.stack(rnn_states_batch).reshape(N, *self.rnn_states.shape[3:])
+            rnn_states_z_batch = np.stack(rnn_states_z_batch).reshape(N, *self.rnn_states_z.shape[3:])
             rnn_states_critic_batch = np.stack(rnn_states_critic_batch).reshape(N, *self.rnn_states_critic.shape[3:])
 
             # Flatten the (L, N, ...) from_numpys to (L * N, ...)
@@ -489,6 +495,6 @@ class SharedReplayBuffer(object):
             old_action_log_probs_batch = _flatten(L, N, old_action_log_probs_batch)
             adv_targ = _flatten(L, N, adv_targ)
 
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch,\
+            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_z_batch, rnn_states_critic_batch, actions_batch,\
                   value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch,\
                   adv_targ, available_actions_batch

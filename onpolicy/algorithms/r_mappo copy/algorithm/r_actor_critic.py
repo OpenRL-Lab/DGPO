@@ -69,7 +69,7 @@ class R_Actor(nn.Module):
 
         return actions, action_log_probs, rnn_states
 
-    def evaluate_actions(self, obs, rnn_states, action, masks, available_actions=None, active_masks=None, need_rnn=False):
+    def evaluate_actions(self, obs, rnn_states, action, masks, available_actions=None, active_masks=None):
         """
         Compute log probability and entropy of given actions.
         :param obs: (torch.Tensor) observation inputs into network.
@@ -98,14 +98,13 @@ class R_Actor(nn.Module):
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
 
-        active_masks = active_masks if self._use_policy_active_masks else None
-        action_log_probs, dist_entropy = \
-            self.act.evaluate_actions(actor_features, action, available_actions, active_masks=active_masks)
+        action_log_probs, dist_entropy = self.act.evaluate_actions(actor_features,
+                                                                   action, available_actions,
+                                                                   active_masks=
+                                                                   active_masks if self._use_policy_active_masks
+                                                                   else None)
 
-        if need_rnn:
-            return action_log_probs, rnn_states
-        else:
-            return action_log_probs, dist_entropy
+        return action_log_probs, dist_entropy
 
 
 class R_Critic(nn.Module):
