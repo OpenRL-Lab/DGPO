@@ -90,7 +90,9 @@ class MPERunner(Runner):
             share_obs = np.expand_dims(share_obs, 1).repeat(self.num_agents, axis=1)
         else:
             share_obs = obs
-
+        
+        share_obs = self.shareobs_spliter(share_obs)
+        
         self.buffer.share_obs[0] = share_obs.copy()
         self.buffer.obs[0] = obs.copy()
 
@@ -153,8 +155,17 @@ class MPERunner(Runner):
             share_obs = np.expand_dims(share_obs, 1).repeat(self.num_agents, axis=1)
         else:
             share_obs = obs
-
+        share_obs = self.shareobs_spliter(share_obs)
+        
         self.buffer.insert(share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs, values, rewards, masks)
+    
+    def shareobs_spliter(self, share_obs):
+        z_vec = share_obs[:,:,:self.max_z]
+        share_obs = share_obs.reshape([self.n_rollout_threads, self.num_agents, self.num_agents, -1])
+        share_obs = share_obs[:,:,:,self.max_z:]
+        share_obs = share_obs.reshape([self.n_rollout_threads, self.num_agents, -1])
+        share_obs = np.concatenate([z_vec, share_obs], -1)
+        return share_obs
 
     @torch.no_grad()
     def eval(self, total_num_steps):

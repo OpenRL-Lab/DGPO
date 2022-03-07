@@ -75,11 +75,8 @@ class R_MAPPOPolicy:
         :return rnn_states_actor: (torch.Tensor) updated actor network RNN states.
         :return rnn_states_critic: (torch.Tensor) updated critic network RNN states.
         """
-        actions, action_log_probs, rnn_states_actor = self.actor(obs,
-                                                                 rnn_states_actor,
-                                                                 masks,
-                                                                 available_actions,
-                                                                 deterministic)
+        actions, action_log_probs, rnn_states_actor = \
+            self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
 
         values, rnn_states_critic = self.critic(cent_obs, rnn_states_critic, masks)
         return values, actions, action_log_probs, rnn_states_actor, rnn_states_critic
@@ -114,6 +111,7 @@ class R_MAPPOPolicy:
         :return action_log_probs: (torch.Tensor) log probabilities of the input actions.
         :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
         """
+
         action_log_probs, dist_entropy = \
             self.actor.evaluate_actions(obs, rnn_states_actor, action, masks, available_actions, active_masks)
 
@@ -138,14 +136,12 @@ class R_MAPPOPolicy:
         :return action_log_probs: (torch.Tensor) log probabilities of the input actions.
         :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
         """
-        z_code = np.argmax(cent_obs[:,:self.max_z], axis=1)
-        z_code = np.expand_dims(z_code, -1)
-        cent_obs = cent_obs.reshape([cent_obs.shape[0], self.num_agents,-1])
-        cent_obs = cent_obs[:,:,self.max_z:]
-        cent_obs = cent_obs.reshape([cent_obs.shape[0], -1])
+        z_idx = np.argmax(cent_obs[:,:self.max_z], axis=1)
+        z_idx = np.expand_dims(z_idx, -1)
+        cent_obs = cent_obs[:,self.max_z:]
 
         action_log_probs, data = \
-            self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_code, masks, active_masks=active_masks, need_rnn=need_rnn)
+            self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_idx, masks, active_masks=active_masks, need_rnn=need_rnn)
 
         return action_log_probs, data
 
@@ -161,3 +157,4 @@ class R_MAPPOPolicy:
         """
         actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
         return actions, rnn_states_actor
+
