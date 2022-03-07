@@ -1,9 +1,10 @@
 import torch
+import copy
 import numpy as np
 
 from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic
 from onpolicy.utils.util import update_linear_schedule
-from gym import spaces
+
 
 class R_MAPPOPolicy:
     """
@@ -16,20 +17,22 @@ class R_MAPPOPolicy:
     :param device: (torch.device) specifies the device to run on (cpu/gpu).
     """
 
-    def __init__(self, args, obs_space, cent_obs_space, act_space, device=torch.device("cpu")):
+    def __init__(self, args, obs_space, cent_obs_space, act_space, device=torch.device("cpu"), z_space=None, z_obs_space=None):
         self.device = device
         self.lr = args.lr
         self.critic_lr = args.critic_lr
         self.opti_eps = args.opti_eps
         self.weight_decay = args.weight_decay
         self.max_z = args.max_z
+        self.num_agents = args.num_agents
 
         self.obs_space = obs_space
         self.share_obs_space = cent_obs_space
         self.act_space = act_space
-        self.z_space = spaces.Discrete(self.max_z)
+        self.z_space = z_space
+        self.z_obs_space = z_obs_space
 
-        self.discriminator = R_Actor(args, self.share_obs_space, self.z_space, self.device)
+        self.discriminator = R_Actor(args, self.z_obs_space, self.z_space, self.device)
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
         self.critic = R_Critic(args, self.share_obs_space, self.device)
 
@@ -137,6 +140,9 @@ class R_MAPPOPolicy:
         """
         z_code = np.argmax(cent_obs[:,:self.max_z], axis=1)
         z_code = np.expand_dims(z_code, -1)
+        cent_obs = cent_obs.reshape([cent_obs.shape[0], self.num_agents,-1])
+        cent_obs = cent_obs[:,:,self.max_z:]
+        cent_obs = cent_obs.reshape([cent_obs.shape[0], -1])
 
         action_log_probs, data = \
             self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_code, masks, active_masks=active_masks, need_rnn=need_rnn)

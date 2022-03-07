@@ -162,13 +162,15 @@ class R_MAPPO():
         self.policy.critic_optimizer.step()
 
         # discriminator update
-        discri_loss, _ = self.policy.evaluate_z(
+        z_log_probs, _ = self.policy.evaluate_z(
             share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
+        
+        z_loss = -torch.mean(z_log_probs)
         
         self.policy.discri_optimizer.zero_grad()
 
         if update_actor:
-            discri_loss.mean().backward()
+            z_loss.backward()
 
         if self._use_max_grad_norm:
             actor_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
@@ -177,7 +179,7 @@ class R_MAPPO():
 
         self.policy.discri_optimizer.step()
 
-        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights
+        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, z_loss
 
     def train(self, buffer, update_actor=True):
         """
@@ -200,6 +202,7 @@ class R_MAPPO():
 
         train_info = {}
 
+        train_info['z_loss'] = 0
         train_info['value_loss'] = 0
         train_info['policy_loss'] = 0
         train_info['dist_entropy'] = 0
@@ -217,9 +220,10 @@ class R_MAPPO():
 
             for sample in data_generator:
 
-                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights \
+                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, z_loss \
                     = self.ppo_update(sample, update_actor)
 
+                train_info['z_loss'] += z_loss.item()
                 train_info['value_loss'] += value_loss.item()
                 train_info['policy_loss'] += policy_loss.item()
                 train_info['dist_entropy'] += dist_entropy.item()

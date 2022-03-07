@@ -1,5 +1,7 @@
-import gym
 import numpy as np
+import copy
+import gym
+from gym import spaces
 
 class VMAPDWrapper(gym.Wrapper):
 
@@ -8,6 +10,8 @@ class VMAPDWrapper(gym.Wrapper):
         self.max_z = max_z
         self.cur_z = -1
         self.num_agents = self.env.n
+        self.z_space = [spaces.Discrete(self.max_z) for _ in range(self.num_agents)]
+        self.z_obs_space = [copy.copy(self.share_observation_space[0]) for _ in range(self.num_agents)]
         for observation_space in self.observation_space:
             observation_space.shape = (observation_space.shape[0] + self.max_z,)
         for observation_space in self.share_observation_space:
