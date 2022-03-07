@@ -2,7 +2,7 @@ import torch
 import copy
 import numpy as np
 
-from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic
+from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic, R_Discriminator
 from onpolicy.utils.util import update_linear_schedule
 
 
@@ -32,7 +32,7 @@ class R_MAPPOPolicy:
         self.z_space = z_space
         self.z_obs_space = z_obs_space
 
-        self.discriminator = R_Actor(args, self.z_obs_space, self.z_space, self.device)
+        self.discriminator = R_Discriminator(args, self.z_obs_space, self.z_space, self.device)
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
         self.critic = R_Critic(args, self.share_obs_space, self.device)
 
@@ -119,7 +119,7 @@ class R_MAPPOPolicy:
 
         return values, action_log_probs, dist_entropy
 
-    def evaluate_z(self, cent_obs, rnn_states_z, masks, available_actions=None, active_masks=None, need_rnn=False):
+    def evaluate_z(self, cent_obs, rnn_states_z, masks, available_actions=None, active_masks=None):
         """
         Get action logprobs / entropy and value function predictions for actor update.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -140,10 +140,10 @@ class R_MAPPOPolicy:
         z_idx = np.expand_dims(z_idx, -1)
         cent_obs = cent_obs[:,self.max_z:]
 
-        action_log_probs, data = \
-            self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_idx, masks, active_masks=active_masks, need_rnn=need_rnn)
+        action_log_probs, rnn_states_z = \
+            self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_idx, masks, active_masks=active_masks)
 
-        return action_log_probs, data
+        return action_log_probs, rnn_states_z
 
     def act(self, obs, rnn_states_actor, masks, available_actions=None, deterministic=False):
         """

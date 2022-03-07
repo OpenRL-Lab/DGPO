@@ -12,6 +12,7 @@ import torch
 from onpolicy.config import get_config
 
 from onpolicy.envs.mpe.MPE_env import MPEEnv
+from onpolicy.envs.mpe.VMAPD_wrapper import VMAPDWrapper
 from onpolicy.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
 
 def make_render_env(all_args):
@@ -19,6 +20,7 @@ def make_render_env(all_args):
         def init_env():
             if all_args.env_name == "MPE":
                 env = MPEEnv(all_args)
+                env = VMAPDWrapper(env, all_args.max_z)
             else:
                 print("Can not support the " +
                       all_args.env_name + "environment.")
@@ -30,6 +32,7 @@ def make_render_env(all_args):
         return DummyVecEnv([get_env_fn(0)])
     else:
         return SubprocVecEnv([get_env_fn(i) for i in range(all_args.n_rollout_threads)])
+
 
 def parse_args(args, parser):
     parser.add_argument('--scenario_name', type=str,

@@ -31,11 +31,11 @@ class MPERunner(Runner):
                 obs, rewards, dones, infos = self.envs.step(actions_env)
 
                 data = obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic
-                
-                self.add_reward(step)
 
                 # insert data into buffer
                 self.insert(data)
+                
+                self.add_reward(step)
 
             # compute return and update network
             self.compute()
@@ -102,15 +102,14 @@ class MPERunner(Runner):
         z_log_prob, rnn_state_z = self.trainer.policy.evaluate_z(
             np.concatenate(self.buffer.share_obs[step]),
             np.concatenate(self.buffer.rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step]),
-            need_rnn=True
+            np.concatenate(self.buffer.masks[step])
         )
         # [self.envs, agents, dim]
         z_log_probs = np.array(np.split(_t2n(z_log_prob), self.n_rollout_threads))
         rnn_states_z = np.array(np.split(_t2n(rnn_state_z), self.n_rollout_threads))
 
-        self.buffer.rnn_states_z[self.buffer.step] = rnn_states_z.copy()
-        self.buffer.rewards[self.buffer.step-1] -= z_log_probs.copy()
+        self.buffer.rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
+        # self.buffer.rewards[step] += z_log_probs.copy()
 
     @torch.no_grad()
     def collect(self, step):
@@ -159,7 +158,7 @@ class MPERunner(Runner):
         
         self.buffer.insert(share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs, values, rewards, masks)
     
-    def shareobs_spliter(self, share_obs):
+    def shareobs_spliter(self, share_obs): # need prettify
         z_vec = share_obs[:,:,:self.max_z]
         share_obs = share_obs.reshape([self.n_rollout_threads, self.num_agents, self.num_agents, -1])
         share_obs = share_obs[:,:,:,self.max_z:]
