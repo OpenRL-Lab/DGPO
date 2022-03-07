@@ -1,3 +1,4 @@
+from curses.panel import new_panel
 import numpy as np
 import torch
 import torch.nn as nn
@@ -29,6 +30,8 @@ class R_MAPPO():
         self.entropy_coef = args.entropy_coef
         self.max_grad_norm = args.max_grad_norm       
         self.huber_delta = args.huber_delta
+        self.num_agents = args.num_agents
+        self.max_z = args.max_z
 
         self._use_recurrent_policy = args.use_recurrent_policy
         self._use_naive_recurrent = args.use_naive_recurrent_policy
@@ -162,6 +165,16 @@ class R_MAPPO():
         self.policy.critic_optimizer.step()
 
         # discriminator update
+        obs_mask = np.ones([1, self.num_agents, share_obs_batch.shape[-1]])
+        obs_shape = obs_batch.shape[-1] - self.max_z
+        for a_id in range(self.num_agents):
+            idx_begin = self.max_z + obs_shape * a_id
+            idx_end   = self.max_z + obs_shape * (a_id + 1)
+            obs_mask[:, a_id, idx_begin:idx_end] = 0
+        repeat_time = obs_batch.shape[0] // self.num_agents
+        obs_mask_batch = obs_mask.repeat(repeat_time, 0)
+        obs_mask_batch = np.concatenate(obs_mask_batch)
+        share_obs_batch = share_obs_batch * obs_mask_batch
         z_log_probs, _ = self.policy.evaluate_z(
             share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
         

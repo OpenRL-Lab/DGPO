@@ -153,7 +153,6 @@ def worker(remote, parent_remote, env_fn_wrapper):
 
             remote.send((ob, reward, done, info))
         elif cmd == 'reset':
-            data = remote.recv()
             ob = env.reset(data)
             remote.send((ob))
         elif cmd == 'render':
