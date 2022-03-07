@@ -53,6 +53,7 @@ class R_MAPPOPolicy:
         :param episode: (int) current training episode.
         :param episodes: (int) total number of training episodes.
         """
+        update_linear_schedule(self.discri_optimizer, episode, episodes, self.lr)
         update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
         update_linear_schedule(self.critic_optimizer, episode, episodes, self.critic_lr)
 
