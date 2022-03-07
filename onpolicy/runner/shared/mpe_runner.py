@@ -214,12 +214,15 @@ class MPERunner(Runner):
     def render(self):
         """Visualize the env."""
         envs = self.envs
-        
+        seed = 999
         all_frames = []
-        for episode in range(self.all_args.render_episodes):
-            obs = envs.reset()
+        for episode in range(self.max_z):
+            self.envs.seed(seed=seed)
+            obs = envs.reset(episode%self.max_z)
             if self.all_args.save_gifs:
                 image = envs.render('rgb_array')[0][0]
+                if episode==0:
+                    image[10:20,10:20] *= 0
                 all_frames.append(image)
             else:
                 envs.render('human')
@@ -262,6 +265,8 @@ class MPERunner(Runner):
 
                 if self.all_args.save_gifs:
                     image = envs.render('rgb_array')[0][0]
+                    if episode==0:
+                        image[10:20,10:20] *= 0
                     all_frames.append(image)
                     calc_end = time.time()
                     elapsed = calc_end - calc_start

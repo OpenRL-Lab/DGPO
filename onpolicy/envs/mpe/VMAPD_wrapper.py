@@ -17,8 +17,11 @@ class VMAPDWrapper(gym.Wrapper):
         for observation_space in self.share_observation_space:
             observation_space.shape = (observation_space.shape[0] + self.max_z,)
     
-    def reset(self, **kwargs):
-        self.cur_z = np.random.randint(self.max_z) 
+    def reset(self, fix_z=None, **kwargs):
+        if fix_z is not None:
+            self.cur_z = fix_z
+        else:
+            self.cur_z = np.random.randint(self.max_z) 
         obs_n = self.env.reset(**kwargs)
         z_vec = np.eye(self.max_z)[self.cur_z]
         for a_id in range(self.num_agents):
