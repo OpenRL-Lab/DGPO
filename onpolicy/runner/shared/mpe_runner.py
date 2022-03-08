@@ -109,7 +109,7 @@ class MPERunner(Runner):
         rnn_states_z = np.array(np.split(_t2n(rnn_state_z), self.n_rollout_threads))
 
         self.buffer.rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
-        # self.buffer.rewards[step] += z_log_probs.copy()
+        self.buffer.rewards[step] += z_log_probs.copy()
 
     @torch.no_grad()
     def collect(self, step):
@@ -214,7 +214,7 @@ class MPERunner(Runner):
     def render(self):
         """Visualize the env."""
         envs = self.envs
-        seed = 999
+        seed = 99
         all_frames = []
         for episode in range(self.max_z):
             self.envs.seed(seed=seed)

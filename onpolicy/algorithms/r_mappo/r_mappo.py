@@ -174,6 +174,7 @@ class R_MAPPO():
         repeat_time = obs_batch.shape[0] // self.num_agents
         obs_mask_batch = obs_mask.repeat(repeat_time, 0)
         obs_mask_batch = np.concatenate(obs_mask_batch)
+        print(obs_mask_batch)
         share_obs_batch = share_obs_batch * obs_mask_batch
         z_log_probs, _ = self.policy.evaluate_z(
             share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
