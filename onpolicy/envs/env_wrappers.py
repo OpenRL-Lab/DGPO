@@ -337,10 +337,16 @@ def shareworker(remote, parent_remote, env_fn_wrapper):
         elif cmd == 'close':
             env.close()
             remote.close()
-            break
+            break        
         elif cmd == 'get_spaces':
-            remote.send(
-                (env.observation_space, env.share_observation_space, env.action_space))
+            remote.send((
+                env.observation_space, 
+                env.share_observation_space, 
+                env.action_space, 
+                env.z_space, 
+                env.z_obs_space, 
+                env.z_local_obs_space, 
+            ))
         elif cmd == 'render_vulnerability':
             fr = env.render_vulnerability(data)
             remote.send((fr))
@@ -365,8 +371,10 @@ class ShareSubprocVecEnv(ShareVecEnv):
         for remote in self.work_remotes:
             remote.close()
         self.remotes[0].send(('get_spaces', None))
-        observation_space, share_observation_space, action_space = self.remotes[0].recv(
-        )
+        observation_space, share_observation_space, action_space, z_space, z_obs_space, loc_z_obs_space = self.remotes[0].recv()
+        self.z_space = z_space
+        self.z_obs_space = z_obs_space
+        self.z_local_obs_space = loc_z_obs_space
         ShareVecEnv.__init__(self, len(env_fns), observation_space,
                              share_observation_space, action_space)
 

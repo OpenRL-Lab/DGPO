@@ -9,6 +9,7 @@ from pathlib import Path
 import torch
 from onpolicy.config import get_config
 from onpolicy.envs.starcraft2.StarCraft2_Env import StarCraft2Env
+from onpolicy.envs.starcraft2.VMAPD_wrapper import VMAPDWrapper
 from onpolicy.envs.starcraft2.smac_maps import get_map_params
 from onpolicy.envs.env_wrappers import ShareSubprocVecEnv, ShareDummyVecEnv
 
@@ -19,6 +20,7 @@ def make_train_env(all_args):
         def init_env():
             if all_args.env_name == "StarCraft2":
                 env = StarCraft2Env(all_args)
+                env = VMAPDWrapper(env, all_args.max_z)
             else:
                 print("Can not support the " + all_args.env_name + "environment.")
                 raise NotImplementedError
@@ -38,6 +40,7 @@ def make_eval_env(all_args):
         def init_env():
             if all_args.env_name == "StarCraft2":
                 env = StarCraft2Env(all_args)
+                env = VMAPDWrapper(env, all_args.max_z)
             else:
                 print("Can not support the " + all_args.env_name + "environment.")
                 raise NotImplementedError
@@ -53,8 +56,8 @@ def make_eval_env(all_args):
 
 
 def parse_args(args, parser):
-    parser.add_argument('--map_name', type=str, default='3m',
-                        help="Which smac map to run on")
+    parser.add_argument('--map_name', type=str, default='3m', help="Which smac map to run on")
+    parser.add_argument('--num_agents', type=int, default=3, help="number of players")
     parser.add_argument("--add_move_state", action='store_true', default=False)
     parser.add_argument("--add_local_obs", action='store_true', default=False)
     parser.add_argument("--add_distance_state", action='store_true', default=False)
@@ -78,8 +81,7 @@ def main(args):
     if all_args.algorithm_name == "rmappo":
         assert (all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy), ("check recurrent policy!")
     elif all_args.algorithm_name == "mappo":
-        assert (all_args.use_recurrent_policy == False and all_args.use_naive_recurrent_policy == False), (
-            "check recurrent policy!")
+        assert (all_args.use_recurrent_policy == False and all_args.use_naive_recurrent_policy == False), ("check recurrent policy!")
     else:
         raise NotImplementedError
 
