@@ -34,17 +34,18 @@ class R_MAPPOPolicy:
         self.z_obs_space = z_obs_space
         self.z_local_obs_space = z_local_obs_space
 
-        self.discriminator = R_Discriminator(args, self.z_obs_space, self.z_space, self.device)
-        self.local_discri = R_Discriminator(args, self.z_local_obs_space, self.z_space, self.device)
+        self.discriminator = R_Discriminator(args, self.z_obs_space, self.z_space, self.device) 
+        self.discri_optimizer = torch.optim.Adam(self.discriminator.parameters(),
+                                                    lr=self.lr, eps=self.opti_eps,
+                                                    weight_decay=self.weight_decay)
+        
+        self.local_discri = R_Discriminator(args, self.z_local_obs_space, self.z_space, self.device) 
+        self.local_discri_optimizer = torch.optim.Adam(self.local_discri.parameters(),
+                                                    lr=self.lr, eps=self.opti_eps,
+                                                    weight_decay=self.weight_decay)
+
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
         self.critic = R_Critic(args, self.share_obs_space, self.device)
-
-        self.discri_optimizer = torch.optim.Adam(self.discriminator.parameters(),
-                                                lr=self.lr, eps=self.opti_eps,
-                                                weight_decay=self.weight_decay)
-        self.local_discri_optimizer = torch.optim.Adam(self.local_discri.parameters(),
-                                                lr=self.lr, eps=self.opti_eps,
-                                                weight_decay=self.weight_decay)
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
                                                 lr=self.lr, eps=self.opti_eps,
                                                 weight_decay=self.weight_decay)

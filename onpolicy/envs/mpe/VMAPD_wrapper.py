@@ -11,8 +11,8 @@ class VMAPDWrapper(gym.Wrapper):
         self.cur_z = -1
         self.num_agents = self.env.n
         self.z_space = [spaces.Discrete(self.max_z) for _ in range(self.num_agents)]
-        self.z_obs_space = [copy.copy(self.share_observation_space[0]) for _ in range(self.num_agents)]
-        self.z_local_obs_space = [copy.copy(self.observation_space[0]) for _ in range(self.num_agents)]
+        self.z_obs_space = [copy.copy(self.share_observation_space[i]) for i in range(self.num_agents)]
+        self.z_local_obs_space = [copy.copy(self.observation_space[i]) for i in range(self.num_agents)]
         for observation_space in self.observation_space:
             observation_space.shape = (observation_space.shape[0] + self.max_z,)
         for observation_space in self.share_observation_space:

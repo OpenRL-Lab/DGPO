@@ -37,6 +37,7 @@ class Runner(object):
         self.use_wandb = self.all_args.use_wandb
         self.use_render = self.all_args.use_render
         self.recurrent_N = self.all_args.recurrent_N
+        self.max_z = self.all_args.max_z
 
         # interval
         self.save_interval = self.all_args.save_interval
@@ -70,16 +71,20 @@ class Runner(object):
         from onpolicy.algorithms.r_mappo.r_mappo import R_MAPPO as TrainAlgo
         from onpolicy.algorithms.r_mappo.algorithm.rMAPPOPolicy import R_MAPPOPolicy as Policy
 
-
         self.policy = []
         for agent_id in range(self.num_agents):
             share_observation_space = self.envs.share_observation_space[agent_id] if self.use_centralized_V else self.envs.observation_space[agent_id]
             # policy network
-            po = Policy(self.all_args,
-                        self.envs.observation_space[agent_id],
-                        share_observation_space,
-                        self.envs.action_space[agent_id],
-                        device = self.device)
+            po = Policy(
+                self.all_args,
+                self.envs.observation_space[agent_id],
+                share_observation_space,
+                self.envs.action_space[agent_id],
+                device = self.device,
+                z_space = self.envs.z_space[agent_id],
+                z_obs_space = self.envs.z_obs_space[agent_id],
+                z_local_obs_space = self.envs.z_local_obs_space[agent_id]
+            )
             self.policy.append(po)
 
         if self.model_dir is not None:

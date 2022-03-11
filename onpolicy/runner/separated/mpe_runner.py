@@ -39,6 +39,8 @@ class MPERunner(Runner):
                 
                 # insert data into buffer
                 self.insert(data)
+                
+                self.add_reward(step)
 
             # compute return and update network
             self.compute()
@@ -83,8 +85,12 @@ class MPERunner(Runner):
         obs = self.envs.reset()
 
         share_obs = []
-        for o in obs:
-            share_obs.append(list(chain(*o)))
+        for rid in range(self.n_rollout_threads):
+            share_o = []
+            share_o.append(obs[rid, 0][:self.max_z])
+            for aid in range(self.num_agents):
+                share_o.append(obs[rid, aid][self.max_z:])
+            share_obs.append(np.concatenate(share_o))
         share_obs = np.array(share_obs)
 
         for agent_id in range(self.num_agents):
@@ -92,6 +98,33 @@ class MPERunner(Runner):
                 share_obs = np.array(list(obs[:, agent_id]))
             self.buffer[agent_id].share_obs[0] = share_obs.copy()
             self.buffer[agent_id].obs[0] = np.array(list(obs[:, agent_id])).copy()
+
+    @torch.no_grad()
+    def add_reward(self, step):
+
+        for agent_id in range(self.num_agents):
+            self.trainer[agent_id].prep_rollout()
+            z_log_prob, rnn_state_z = self.trainer[agent_id].policy.evaluate_z(
+                self.buffer[agent_id].share_obs[step],
+                self.buffer[agent_id].rnn_states_z[step],
+                self.buffer[agent_id].masks[step]
+            )
+            loc_z_log_prob, loc_rnn_state_z = self.trainer[agent_id].policy.evaluate_local_z(
+                self.buffer[agent_id].obs[step],
+                self.buffer[agent_id].loc_rnn_states_z[step],
+                self.buffer[agent_id].masks[step]
+            )
+            # [self.envs, agents, dim]
+            z_log_probs = _t2n(z_log_prob)
+            rnn_states_z = _t2n(rnn_state_z)
+            loc_z_log_probs =_t2n(loc_z_log_prob)
+            loc_rnn_states_z = _t2n(loc_rnn_state_z)
+            loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
+            self.buffer[agent_id].rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
+            self.buffer[agent_id].loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
+            # self.buffer[agent_id].rewards[step] += z_log_probs.copy() # change!!!
+            # self.buffer[agent_id].rewards[step] -= loc_rewards.copy()
+            # self.buffer.rewards[step] += z_log_probs.copy()
 
     @torch.no_grad()
     def collect(self, step):
@@ -157,15 +190,19 @@ class MPERunner(Runner):
         masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
 
         share_obs = []
-        for o in obs:
-            share_obs.append(list(chain(*o)))
+        for rid in range(self.n_rollout_threads):
+            share_o = []
+            share_o.append(obs[rid, 0][:self.max_z])
+            for aid in range(self.num_agents):
+                share_o.append(obs[rid, aid][self.max_z:])
+            share_obs.append(np.concatenate(share_o))
         share_obs = np.array(share_obs)
 
         for agent_id in range(self.num_agents):
             if not self.use_centralized_V:
                 share_obs = np.array(list(obs[:, agent_id]))
 
-            self.buffer[agent_id].insert(share_obs,
+            self.buffer[agent_id].insert(share_obs.copy(),
                                         np.array(list(obs[:, agent_id])),
                                         rnn_states[:, agent_id],
                                         rnn_states_critic[:, agent_id],
@@ -238,9 +275,9 @@ class MPERunner(Runner):
     @torch.no_grad()
     def render(self):        
         all_frames = []
-        for episode in range(self.all_args.render_episodes):
+        for episode in range(self.max_z):
             episode_rewards = []
-            obs = self.envs.reset()
+            obs = self.envs.reset(episode%self.max_z)
             if self.all_args.save_gifs:
                 image = self.envs.render('rgb_array')[0][0]
                 all_frames.append(image)

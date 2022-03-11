@@ -1,8 +1,8 @@
 #!/bin/sh
 env="MPE"
-scenario="simple_spread"  # simple_speaker_listener # simple_reference
+scenario="simple_speaker_listener"  # simple_spread # simple_reference
 num_landmarks=3
-num_agents=3
+num_agents=2
 algo="rmappo"
 exp="check"
 seed_max=1
@@ -14,6 +14,6 @@ do
     CUDA_VISIBLE_DEVICES=0 python3 train/train_mpe.py --env_name ${env} --algorithm_name ${algo} --experiment_name ${exp} \
     --scenario_name ${scenario} --num_agents ${num_agents} --num_landmarks ${num_landmarks} --seed ${seed} --n_training_threads 1 \
     --n_rollout_threads 64 --n_eval_rollout_threads 64 --num_mini_batch 1 --episode_length 25 --num_env_steps 20000000 --ppo_epoch 10 \
-    --use_ReLU --gain 0.01 --lr 7e-4 --critic_lr 7e-4 --wandb_name "cwz19" --user_name "cwz19" --use_eval \
-    # --use_wandb 
+    --share_policy --use_ReLU --gain 0.01 --lr 7e-4 --critic_lr 7e-4 --wandb_name "cwz19" --user_name "cwz19" \
+    --use_eval # --use_wandb 
 done
