@@ -104,7 +104,7 @@ class R_MAPPO():
         :return actor_grad_norm: (torch.Tensor) gradient norm from actor update.
         :return imp_weights: (torch.Tensor) importance sampling weights.
         """
-        share_obs_batch, obs_batch, rnn_states_batch, rnn_states_z_batch, rnn_states_critic_batch, actions_batch, \
+        share_obs_batch, obs_batch, rnn_states_batch, rnn_states_z_batch, loc_rnn_states_z_batch, rnn_states_critic_batch, actions_batch, \
         value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
         adv_targ, available_actions_batch = sample
 
@@ -165,26 +165,31 @@ class R_MAPPO():
         self.policy.critic_optimizer.step()
 
         # discriminator update
-        obs_mask = np.ones([1, self.num_agents, share_obs_batch.shape[-1]])
-        obs_shape = obs_batch.shape[-1] - self.max_z
-        for a_id in range(self.num_agents):
-            idx_begin = self.max_z + obs_shape * a_id
-            idx_end   = self.max_z + obs_shape * (a_id + 1)
-            obs_mask[:, a_id, idx_begin:idx_end] = 0
-        repeat_time = obs_batch.shape[0] // self.num_agents
-        obs_mask_batch = obs_mask.repeat(repeat_time, 0)
-        obs_mask_batch = np.concatenate(obs_mask_batch)
-        print(obs_mask_batch)
-        share_obs_batch = share_obs_batch * obs_mask_batch
+        # obs_mask = np.ones([1, self.num_agents, share_obs_batch.shape[-1]])
+        # obs_shape = obs_batch.shape[-1] - self.max_z
+        # for a_id in range(self.num_agents):
+        #     idx_begin = self.max_z + obs_shape * a_id
+        #     idx_end   = self.max_z + obs_shape * (a_id + 1)
+        #     obs_mask[:, a_id, idx_begin:idx_end] = 0
+        # repeat_time = obs_batch.shape[0] // self.num_agents
+        # obs_mask_batch = obs_mask.repeat(repeat_time, 0)
+        # obs_mask_batch = np.concatenate(obs_mask_batch)
+        # share_obs_batch = share_obs_batch * obs_mask_batch
         z_log_probs, _ = self.policy.evaluate_z(
             share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
+
+        loc_z_log_probs, _ = self.policy.evaluate_local_z(
+            obs_batch, loc_rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
         
         z_loss = -torch.mean(z_log_probs)
+        loc_z_loss = -torch.mean(loc_z_log_probs)
         
         self.policy.discri_optimizer.zero_grad()
+        self.policy.local_discri_optimizer.zero_grad()
 
         if update_actor:
             z_loss.backward()
+            loc_z_loss.backward()
 
         if self._use_max_grad_norm:
             actor_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
@@ -192,8 +197,9 @@ class R_MAPPO():
             actor_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
 
         self.policy.discri_optimizer.step()
+        self.policy.local_discri_optimizer.step()
 
-        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, z_loss
+        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, z_loss, loc_z_loss
 
     def train(self, buffer, update_actor=True):
         """
@@ -217,6 +223,7 @@ class R_MAPPO():
         train_info = {}
 
         train_info['z_loss'] = 0
+        train_info['z_loc_loss'] = 0
         train_info['value_loss'] = 0
         train_info['policy_loss'] = 0
         train_info['dist_entropy'] = 0
@@ -234,10 +241,11 @@ class R_MAPPO():
 
             for sample in data_generator:
 
-                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, z_loss \
+                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, z_loss, z_loc_loss \
                     = self.ppo_update(sample, update_actor)
 
                 train_info['z_loss'] += z_loss.item()
+                train_info['z_loc_loss'] += z_loc_loss.item()
                 train_info['value_loss'] += value_loss.item()
                 train_info['policy_loss'] += policy_loss.item()
                 train_info['dist_entropy'] += dist_entropy.item()

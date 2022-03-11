@@ -82,7 +82,8 @@ class Runner(object):
                             self.envs.action_space[0],
                             device = self.device,
                             z_space = self.envs.z_space[0],
-                            z_obs_space = self.envs.z_obs_space[0])
+                            z_obs_space = self.envs.z_obs_space[0],
+                            z_local_obs_space = self.envs.z_local_obs_space[0])
 
         if self.model_dir is not None:
             self.restore()

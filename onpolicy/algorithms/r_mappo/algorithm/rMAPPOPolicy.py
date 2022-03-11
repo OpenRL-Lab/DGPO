@@ -17,7 +17,8 @@ class R_MAPPOPolicy:
     :param device: (torch.device) specifies the device to run on (cpu/gpu).
     """
 
-    def __init__(self, args, obs_space, cent_obs_space, act_space, device=torch.device("cpu"), z_space=None, z_obs_space=None):
+    def __init__(self, args, obs_space, cent_obs_space, act_space, device=torch.device("cpu"), \
+        z_space=None, z_obs_space=None, z_local_obs_space=None):
         self.device = device
         self.lr = args.lr
         self.critic_lr = args.critic_lr
@@ -31,12 +32,17 @@ class R_MAPPOPolicy:
         self.act_space = act_space
         self.z_space = z_space
         self.z_obs_space = z_obs_space
+        self.z_local_obs_space = z_local_obs_space
 
         self.discriminator = R_Discriminator(args, self.z_obs_space, self.z_space, self.device)
+        self.local_discri = R_Discriminator(args, self.z_local_obs_space, self.z_space, self.device)
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
         self.critic = R_Critic(args, self.share_obs_space, self.device)
 
         self.discri_optimizer = torch.optim.Adam(self.discriminator.parameters(),
+                                                lr=self.lr, eps=self.opti_eps,
+                                                weight_decay=self.weight_decay)
+        self.local_discri_optimizer = torch.optim.Adam(self.local_discri.parameters(),
                                                 lr=self.lr, eps=self.opti_eps,
                                                 weight_decay=self.weight_decay)
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
@@ -143,6 +149,32 @@ class R_MAPPOPolicy:
 
         action_log_probs, rnn_states_z = \
             self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_idx, masks, active_masks=active_masks)
+
+        return action_log_probs, rnn_states_z
+
+    def evaluate_local_z(self, obs, rnn_states_z, masks, available_actions=None, active_masks=None):
+        """
+        Get action logprobs / entropy and value function predictions for actor update.
+        :param cent_obs (np.ndarray): centralized input to the critic.
+        :param obs (np.ndarray): local agent inputs to the actor.
+        :param rnn_states_actor: (np.ndarray) if actor is RNN, RNN states for actor.
+        :param rnn_states_critic: (np.ndarray) if critic is RNN, RNN states for critic.
+        :param action: (np.ndarray) actions whose log probabilites and entropy to compute.
+        :param masks: (np.ndarray) denotes points at which RNN states should be reset.
+        :param available_actions: (np.ndarray) denotes which actions are available to agent
+                                  (if None, all actions available)
+        :param active_masks: (torch.Tensor) denotes whether an agent is active or dead.
+
+        :return values: (torch.Tensor) value function predictions.
+        :return action_log_probs: (torch.Tensor) log probabilities of the input actions.
+        :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
+        """
+        z_idx = np.argmax(obs[:,:self.max_z], axis=1)
+        z_idx = np.expand_dims(z_idx, -1)
+        obs = obs[:,self.max_z:]
+
+        action_log_probs, rnn_states_z = \
+            self.local_discri.evaluate_actions(obs, rnn_states_z, z_idx, masks, active_masks=active_masks)
 
         return action_log_probs, rnn_states_z
 

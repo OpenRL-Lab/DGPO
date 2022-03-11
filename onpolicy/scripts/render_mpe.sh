@@ -12,7 +12,7 @@ for seed in `seq ${seed_max}`
 do
     CUDA_VISIBLE_DEVICES=1 python3 render/render_mpe.py --save_gifs --env_name ${env} --algorithm_name ${algo} \
     --experiment_name ${exp} --scenario_name ${scenario} --num_agents ${num_agents} \
-    --num_landmarks ${num_landmarks} --seed ${seed} --use_ReLU \
-    --n_training_threads 1 --n_rollout_threads 1 --use_render --episode_length 25 --render_episodes 2 \
-    --model_dir "results/MPE/simple_spread/rmappo/check/wandb/run-20220307_232218-ggf6puqa/files" --use_wandb
+    --num_landmarks ${num_landmarks} --seed ${seed} --use_ReLU --gain 0.01 \
+    --n_training_threads 1 --n_rollout_threads 1 --use_render --episode_length 25 \
+    --model_dir "results/MPE/simple_spread/rmappo/check/wandb/vmapd_local_discriminator/files/" --use_wandb
 done

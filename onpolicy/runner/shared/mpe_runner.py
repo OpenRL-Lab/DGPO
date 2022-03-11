@@ -104,12 +104,22 @@ class MPERunner(Runner):
             np.concatenate(self.buffer.rnn_states_z[step]),
             np.concatenate(self.buffer.masks[step])
         )
+        loc_z_log_prob, loc_rnn_state_z = self.trainer.policy.evaluate_local_z(
+            np.concatenate(self.buffer.obs[step]),
+            np.concatenate(self.buffer.loc_rnn_states_z[step]),
+            np.concatenate(self.buffer.masks[step])
+        )
         # [self.envs, agents, dim]
         z_log_probs = np.array(np.split(_t2n(z_log_prob), self.n_rollout_threads))
         rnn_states_z = np.array(np.split(_t2n(rnn_state_z), self.n_rollout_threads))
-
+        loc_z_log_probs = np.array(np.split(_t2n(loc_z_log_prob), self.n_rollout_threads))
+        loc_rnn_states_z = np.array(np.split(_t2n(loc_rnn_state_z), self.n_rollout_threads))
+        loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
         self.buffer.rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
-        self.buffer.rewards[step] += z_log_probs.copy()
+        self.buffer.loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
+        self.buffer.rewards[step] += 2*z_log_probs.copy() # change!!!
+        self.buffer.rewards[step] -= loc_rewards.copy()
+        # self.buffer.rewards[step] += z_log_probs.copy()
 
     @torch.no_grad()
     def collect(self, step):
@@ -214,7 +224,7 @@ class MPERunner(Runner):
     def render(self):
         """Visualize the env."""
         envs = self.envs
-        seed = 99
+        seed = 1
         all_frames = []
         for episode in range(self.max_z):
             self.envs.seed(seed=seed)
