@@ -122,7 +122,7 @@ class MPERunner(Runner):
             loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
             self.buffer[agent_id].rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
             self.buffer[agent_id].loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
-            # self.buffer[agent_id].rewards[step] += z_log_probs.copy() # change!!!
+            self.buffer[agent_id].rewards[step] += 0.2*z_log_probs.copy() # change!!!
             # self.buffer[agent_id].rewards[step] -= loc_rewards.copy()
             # self.buffer.rewards[step] += z_log_probs.copy()
 
