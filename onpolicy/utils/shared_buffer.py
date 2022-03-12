@@ -153,6 +153,7 @@ class SharedReplayBuffer(object):
         self.share_obs[0] = self.share_obs[-1].copy()
         self.obs[0] = self.obs[-1].copy()
         self.rnn_states_z[0] = self.rnn_states_z[-1].copy()
+        self.loc_rnn_states_z[0] = self.loc_rnn_states_z[-1].copy()
         self.rnn_states[0] = self.rnn_states[-1].copy()
         self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
         self.masks[0] = self.masks[-1].copy()
@@ -166,6 +167,7 @@ class SharedReplayBuffer(object):
         self.rnn_states[0] = self.rnn_states[-1].copy()
         self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
         self.rnn_states_z[0] = self.rnn_states_z[-1].copy()
+        self.loc_rnn_states_z[0] = self.loc_rnn_states_z[-1].copy()
         self.masks[0] = self.masks[-1].copy()
         self.bad_masks[0] = self.bad_masks[-1].copy()
 

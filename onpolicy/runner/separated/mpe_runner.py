@@ -40,7 +40,7 @@ class MPERunner(Runner):
                 # insert data into buffer
                 self.insert(data)
                 
-                self.add_reward(step)
+                self.add_reward(step, dones)
 
             # compute return and update network
             self.compute()
@@ -100,7 +100,7 @@ class MPERunner(Runner):
             self.buffer[agent_id].obs[0] = np.array(list(obs[:, agent_id])).copy()
 
     @torch.no_grad()
-    def add_reward(self, step):
+    def add_reward(self, step, dones):
 
         for agent_id in range(self.num_agents):
             self.trainer[agent_id].prep_rollout()
@@ -119,6 +119,7 @@ class MPERunner(Runner):
             rnn_states_z = _t2n(rnn_state_z)
             loc_z_log_probs =_t2n(loc_z_log_prob)
             loc_rnn_states_z = _t2n(loc_rnn_state_z)
+            rnn_state_z[dones == True] = 0 # TODO
             loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
             self.buffer[agent_id].rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
             self.buffer[agent_id].loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
