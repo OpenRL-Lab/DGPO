@@ -731,8 +731,10 @@ class ShareDummyVecEnv(ShareVecEnv):
     def __init__(self, env_fns):
         self.envs = [fn() for fn in env_fns]
         env = self.envs[0]
-        ShareVecEnv.__init__(self, len(
-            env_fns), env.observation_space, env.share_observation_space, env.action_space)
+        self.z_space = env.z_space
+        self.z_obs_space = env.z_obs_space
+        self.z_local_obs_space = env.z_local_obs_space
+        ShareVecEnv.__init__(self, len(env_fns), env.observation_space, env.share_observation_space, env.action_space)
         self.actions = None
 
     def step_async(self, actions):
@@ -771,6 +773,10 @@ class ShareDummyVecEnv(ShareVecEnv):
                 env.render(mode=mode)
         else:
             raise NotImplementedError
+            
+    def save_replay(self):
+        for env in self.envs:
+            env.save_replay()
 
 
 class ChooseDummyVecEnv(ShareVecEnv):

@@ -44,3 +44,9 @@ class VMAPDWrapper(object):
 
     def seed(self, seed):
         self.env.seed(seed)
+
+    def save_replay(self):
+        self.env.save_replay()
+    
+    def close(self):
+        self.env.close()

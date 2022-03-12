@@ -134,7 +134,7 @@ class SMACRunner(Runner):
             np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
         self.buffer.rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
         self.buffer.loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
-        self.buffer.rewards[step] = z_log_probs.copy() 
+        self.buffer.rewards[step] += z_log_probs.copy() 
         # self.buffer.rewards[step] -= loc_rewards.copy()
         # self.buffer.rewards[step] += z_log_probs.copy()
 
@@ -243,3 +243,55 @@ class SMACRunner(Runner):
                 else:
                     self.writter.add_scalars("eval_win_rate", {"eval_win_rate": eval_win_rate}, total_num_steps)
                 break
+
+    @torch.no_grad()
+    def render(self):
+        render_battles_won = 0
+        render_episode = 0
+
+        render_episode_rewards = []
+        one_episode_rewards = []
+
+        render_obs, render_share_obs, render_available_actions = self.envs.reset()
+
+        render_rnn_states = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
+        render_masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
+
+        while True:
+            self.trainer.prep_rollout()
+            render_actions, render_rnn_states = \
+                self.trainer.policy.act(np.concatenate(render_obs),
+                                        np.concatenate(render_rnn_states),
+                                        np.concatenate(render_masks),
+                                        np.concatenate(render_available_actions),
+                                        deterministic=True)
+            render_actions = np.array(np.split(_t2n(render_actions), self.n_rollout_threads))
+            render_rnn_states = np.array(np.split(_t2n(render_rnn_states), self.n_rollout_threads))
+            
+            # Obser reward and next obs
+            render_obs, render_share_obs, render_rewards, render_dones, render_infos, render_available_actions = self.envs.step(render_actions)
+            one_episode_rewards.append(render_rewards)
+
+            render_dones_env = np.all(render_dones, axis=1)
+
+            render_rnn_states[render_dones_env == True] = np.zeros(((render_dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
+
+            render_masks = np.ones((self.all_args.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
+            render_masks[render_dones_env == True] = np.zeros(((render_dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
+
+            for render_i in range(self.n_rollout_threads):
+                if render_dones_env[render_i]:
+                    render_episode += 1
+                    render_episode_rewards.append(np.sum(one_episode_rewards, axis=0))
+                    one_episode_rewards = []
+                    if render_infos[render_i][0]['won']:
+                        render_battles_won += 1
+
+            if render_episode >= self.all_args.render_episodes:
+                render_episode_rewards = np.array(render_episode_rewards)
+                render_win_rate = render_battles_won/render_episode
+                print("render win rate is {}.".format(render_win_rate))
+                break
+        
+        print('saving to replay')
+        self.envs.save_replay()
