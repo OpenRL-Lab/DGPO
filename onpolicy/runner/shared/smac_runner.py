@@ -134,8 +134,8 @@ class SMACRunner(Runner):
             np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
         self.buffer.rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
         self.buffer.loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
-        self.buffer.rewards[step] += z_log_probs.copy() 
-        # self.buffer.rewards[step] -= loc_rewards.copy()
+        self.buffer.rewards[step] += 2*z_log_probs.copy() 
+        self.buffer.rewards[step] -= loc_rewards.copy()
         # self.buffer.rewards[step] += z_log_probs.copy()
 
     @torch.no_grad()
@@ -252,7 +252,7 @@ class SMACRunner(Runner):
         render_episode_rewards = []
         one_episode_rewards = []
 
-        render_obs, render_share_obs, render_available_actions = self.envs.reset()
+        render_obs, render_share_obs, render_available_actions = self.envs.reset(render_episode)
 
         render_rnn_states = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
         render_masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
@@ -287,7 +287,7 @@ class SMACRunner(Runner):
                     if render_infos[render_i][0]['won']:
                         render_battles_won += 1
 
-            if render_episode >= self.all_args.render_episodes:
+            if render_episode >= self.max_z:
                 render_episode_rewards = np.array(render_episode_rewards)
                 render_win_rate = render_battles_won/render_episode
                 print("render win rate is {}.".format(render_win_rate))

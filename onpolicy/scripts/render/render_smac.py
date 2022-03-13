@@ -19,7 +19,7 @@ def make_render_env(all_args):
     def get_env_fn(rank):
         def init_env():
             if all_args.env_name == "StarCraft2":
-                env = StarCraft2Env(all_args,replay_dir=all_args.render_dir)
+                env = StarCraft2Env(all_args)
                 env = VMAPDWrapper(env, all_args.max_z)
             else:
                 print("Can not support the " + all_args.env_name + "environment.")
