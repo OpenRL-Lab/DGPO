@@ -174,6 +174,7 @@ class R_MAPPO():
         # obs_mask_batch = obs_mask.repeat(repeat_time, 0)
         # obs_mask_batch = np.concatenate(obs_mask_batch)
         # share_obs_batch = share_obs_batch * obs_mask_batch
+
         z_log_probs, _ = self.policy.evaluate_z(
             share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
 
@@ -181,21 +182,21 @@ class R_MAPPO():
             obs_batch, loc_rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
         
         z_loss = -torch.mean(z_log_probs)
-        loc_z_loss = -torch.mean(loc_z_log_probs)
-        
         self.policy.discri_optimizer.zero_grad()
-        self.policy.local_discri_optimizer.zero_grad()
-
-        if update_actor:
-            z_loss.backward()
-            loc_z_loss.backward()
-
+        z_loss.backward()
         if self._use_max_grad_norm:
-            actor_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
+            z_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
         else:
-            actor_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
-
+            z_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
         self.policy.discri_optimizer.step()
+
+        loc_z_loss = -torch.mean(loc_z_log_probs)
+        self.policy.local_discri_optimizer.zero_grad()
+        loc_z_loss.backward()
+        if self._use_max_grad_norm:
+            loc_z_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
+        else:
+            loc_z_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
         self.policy.local_discri_optimizer.step()
 
         return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, z_loss, loc_z_loss
@@ -262,7 +263,11 @@ class R_MAPPO():
     def prep_training(self):
         self.policy.actor.train()
         self.policy.critic.train()
+        self.policy.discriminator.train()
+        self.policy.local_discri.train()
 
     def prep_rollout(self):
         self.policy.actor.eval()
         self.policy.critic.eval()
+        self.policy.discriminator.eval()
+        self.policy.local_discri.eval()

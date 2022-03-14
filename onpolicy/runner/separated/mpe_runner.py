@@ -105,25 +105,25 @@ class MPERunner(Runner):
         for agent_id in range(self.num_agents):
             self.trainer[agent_id].prep_rollout()
             z_log_prob, rnn_state_z = self.trainer[agent_id].policy.evaluate_z(
-                self.buffer[agent_id].share_obs[step],
+                self.buffer[agent_id].share_obs[step+1],
                 self.buffer[agent_id].rnn_states_z[step],
-                self.buffer[agent_id].masks[step]
+                self.buffer[agent_id].masks[step+1]
             )
             loc_z_log_prob, loc_rnn_state_z = self.trainer[agent_id].policy.evaluate_local_z(
-                self.buffer[agent_id].obs[step],
+                self.buffer[agent_id].obs[step+1],
                 self.buffer[agent_id].loc_rnn_states_z[step],
-                self.buffer[agent_id].masks[step]
+                self.buffer[agent_id].masks[step+1]
             )
             # [self.envs, agents, dim]
             z_log_probs = _t2n(z_log_prob)
             rnn_states_z = _t2n(rnn_state_z)
             loc_z_log_probs =_t2n(loc_z_log_prob)
             loc_rnn_states_z = _t2n(loc_rnn_state_z)
-            rnn_state_z[dones == True] = 0 # TODO
+            
             loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
             self.buffer[agent_id].rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
             self.buffer[agent_id].loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
-            self.buffer[agent_id].rewards[step] += 0.2*z_log_probs.copy() # change!!!
+            self.buffer[agent_id].rewards[step] += z_log_probs.copy()
             # self.buffer[agent_id].rewards[step] -= loc_rewards.copy()
             # self.buffer.rewards[step] += z_log_probs.copy()
 
