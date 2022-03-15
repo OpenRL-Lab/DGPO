@@ -120,11 +120,13 @@ class MPERunner(Runner):
             rnn_states_z = _t2n(rnn_state_z)
             loc_z_log_probs =_t2n(loc_z_log_prob)
             loc_rnn_states_z = _t2n(loc_rnn_state_z)
-            
+            dones_env = np.all(dones, 1)
+            rnn_states_z[dones_env] *= 0
+            loc_rnn_states_z[dones_env] *= 0
             loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
             self.buffer[agent_id].rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
             self.buffer[agent_id].loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
-            self.buffer[agent_id].rewards[step] += z_log_probs.copy()
+            self.buffer[agent_id].rewards[step] += 0.25 * z_log_probs.copy() 
             # self.buffer[agent_id].rewards[step] -= loc_rewards.copy()
             # self.buffer.rewards[step] += z_log_probs.copy()
 

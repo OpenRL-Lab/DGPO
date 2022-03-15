@@ -128,7 +128,7 @@ class R_MAPPOPolicy:
 
         return values, action_log_probs, dist_entropy
 
-    def evaluate_z(self, cent_obs, rnn_states_z, masks, available_actions=None, active_masks=None):
+    def evaluate_z(self, cent_obs, rnn_states_z, masks, active_masks=None):
         """
         Get action logprobs / entropy and value function predictions for actor update.
         :param cent_obs (np.ndarray): centralized input to the critic.
