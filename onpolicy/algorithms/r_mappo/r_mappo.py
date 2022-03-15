@@ -164,6 +164,7 @@ class R_MAPPO():
         self.policy.critic_optimizer.step()
 
         # discriminator update
+        
         # obs_mask = np.ones([1, self.num_agents, share_obs_batch.shape[-1]])
         # obs_shape = obs_batch.shape[-1] - self.max_z
         # for a_id in range(self.num_agents):

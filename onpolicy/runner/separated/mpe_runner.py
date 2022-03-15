@@ -40,6 +40,7 @@ class MPERunner(Runner):
                 # insert data into buffer
                 self.insert(data)
                 
+                # VMAPD update
                 self.add_reward(step, dones)
 
             # compute return and update network
