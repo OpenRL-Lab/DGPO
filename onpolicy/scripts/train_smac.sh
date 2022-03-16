@@ -14,5 +14,5 @@ do
     --map_name ${map} --seed ${seed} --num_agents ${num_agents} --n_training_threads 1 --n_rollout_threads 32 \
     --num_mini_batch 1 --episode_length 400 --num_env_steps 10000000 --ppo_epoch 10 --use_ReLU \
     --use_value_active_masks --wandb_name "cwz19" --user_name "cwz19" \
-    --use_eval #--use_wandb # 
+    --use_eval # --use_wandb
 done

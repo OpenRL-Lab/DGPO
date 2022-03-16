@@ -12,7 +12,7 @@ do
     --algorithm_name ${algo} --experiment_name ${exp} --map_name ${map} --seed ${seed} \
     --n_training_threads 1 --n_rollout_threads 1 --num_mini_batch 1 --episode_length 400 \
     --use_ReLU --use_render \
-    --model_dir "results/StarCraft2/3m/rmappo/vmapd_local/wandb/run-20220313_135912-otc7ymu8/files"
+    --model_dir "results/StarCraft2/3m/rmappo/vmapd_local/wandb/run-20220316_005140-2fl1ztw7/files"
 done
 
 #--use_value_active_masks 

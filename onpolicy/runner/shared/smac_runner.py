@@ -39,6 +39,7 @@ class SMACRunner(Runner):
                 # insert data into buffer
                 self.insert(data)
                 
+                # VMAPD
                 self.add_reward(step, dones)
 
             # compute return and update network
@@ -112,14 +113,14 @@ class SMACRunner(Runner):
     def add_reward(self, step, dones):
         self.trainer.prep_rollout()
         z_log_prob, rnn_state_z = self.trainer.policy.evaluate_z(
-            np.concatenate(self.buffer.share_obs[step]),
+            np.concatenate(self.buffer.share_obs[step+1]),
             np.concatenate(self.buffer.rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step])
+            np.concatenate(self.buffer.masks[step+1])
         )
         loc_z_log_prob, loc_rnn_state_z = self.trainer.policy.evaluate_local_z(
-            np.concatenate(self.buffer.obs[step]),
+            np.concatenate(self.buffer.obs[step+1]),
             np.concatenate(self.buffer.loc_rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step])
+            np.concatenate(self.buffer.masks[step+1])
         )
         # [self.envs, agents, dim]
         z_log_probs = np.array(np.split(_t2n(z_log_prob), self.n_rollout_threads))
@@ -128,14 +129,12 @@ class SMACRunner(Runner):
         loc_rnn_states_z = np.array(np.split(_t2n(loc_rnn_state_z), self.n_rollout_threads))
         loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
         dones_env = np.all(dones, axis=1)
-        rnn_states_z[dones_env==True] = \
-            np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
-        loc_rnn_states_z[dones_env==True] = \
-            np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
+        rnn_states_z[dones_env==True] *= 0
+        loc_rnn_states_z[dones_env==True] *= 0
         self.buffer.rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
         self.buffer.loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
-        self.buffer.rewards[step] += 2*z_log_probs.copy() 
-        self.buffer.rewards[step] -= loc_rewards.copy()
+        self.buffer.rewards[step] += z_log_probs.copy() 
+        # self.buffer.rewards[step] -= loc_rewards.copy()
         # self.buffer.rewards[step] += z_log_probs.copy()
 
     @torch.no_grad()

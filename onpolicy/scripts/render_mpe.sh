@@ -14,5 +14,6 @@ do
     --experiment_name ${exp} --scenario_name ${scenario} --num_agents ${num_agents} \
     --num_landmarks ${num_landmarks} --seed ${seed} --use_ReLU --gain 0.01 \
     --n_training_threads 1 --n_rollout_threads 1 --use_render --episode_length 25 \
-    --model_dir "results/MPE/simple_speaker_listener/rmappo/check/wandb/run-20220311_123034-2ryaryut/files" --use_wandb --share_policy
+    --model_dir "results/MPE/simple_speaker_listener/rmappo/check/wandb/run-20220315_163023-16sxt6ai/files" \
+    --use_wandb --share_policy
 done

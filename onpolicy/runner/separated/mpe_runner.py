@@ -279,8 +279,10 @@ class MPERunner(Runner):
     @torch.no_grad()
     def render(self):        
         all_frames = []
+        seed = 9
         for episode in range(self.max_z):
             episode_rewards = []
+            self.envs.seed(seed)
             obs = self.envs.reset(episode%self.max_z)
             if self.all_args.save_gifs:
                 image = self.envs.render('rgb_array')[0][0]
