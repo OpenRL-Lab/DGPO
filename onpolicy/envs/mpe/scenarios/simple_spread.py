@@ -35,7 +35,7 @@ class Scenario(BaseScenario):
 
         world.assign_landmark_colors()
 
-        # given initial states
+        # # given initial states
         # coor_agent = np.array([[1, 0], [-0.5, 0.8660254038], [-0.5, -0.8660254038]])
         # coor_landm = np.array([[0.5, 0.8660254038], [0.5, -0.8660254038], [-1, 0]])
         # for i, agent in enumerate(world.agents):

@@ -22,6 +22,8 @@ class SharedReplayBuffer(object):
     """
 
     def __init__(self, args, num_agents, obs_space, cent_obs_space, act_space):
+
+        # parameters
         self.episode_length = args.episode_length
         self.n_rollout_threads = args.n_rollout_threads
         self.hidden_size = args.hidden_size
@@ -33,8 +35,10 @@ class SharedReplayBuffer(object):
         self._use_valuenorm = args.use_valuenorm
         self._use_proper_time_limits = args.use_proper_time_limits
 
+        # shapes
         obs_shape = get_shape_from_obs_space(obs_space)
         share_obs_shape = get_shape_from_obs_space(cent_obs_space)
+        act_shape = get_shape_from_act_space(act_space)
 
         if type(obs_shape[-1]) == list:
             obs_shape = obs_shape[:1]
@@ -42,111 +46,78 @@ class SharedReplayBuffer(object):
         if type(share_obs_shape[-1]) == list:
             share_obs_shape = share_obs_shape[:1]
 
-        self.share_obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, num_agents, *share_obs_shape),
-                                  dtype=np.float32)
-        self.obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, num_agents, *obs_shape), dtype=np.float32)
+        # data : obs
+        self.share_obs = np.zeros((self.episode_length+1, self.n_rollout_threads, num_agents, *share_obs_shape), dtype=np.float32)
+        self.obs = np.zeros((self.episode_length+1, self.n_rollout_threads, num_agents, *obs_shape), dtype=np.float32)
 
-        self.rnn_states = np.zeros(
-            (self.episode_length + 1, self.n_rollout_threads, num_agents, self.recurrent_N, self.hidden_size),
-            dtype=np.float32)
-        self.rnn_states_critic = np.zeros_like(self.rnn_states)
-        self.rnn_states_z = np.zeros_like(self.rnn_states)
-        self.loc_rnn_states_z = np.zeros_like(self.rnn_states)
+        # data : rnn_state
+        r_shape = (self.episode_length+1, self.n_rollout_threads, num_agents, self.recurrent_N, self.hidden_size)
+        self.rnn_states = np.zeros(r_shape,dtype=np.float32)
+        self.rnn_states_critic = np.zeros(r_shape,dtype=np.float32)
+        self.rnn_states_z = np.zeros(r_shape,dtype=np.float32)
+        self.loc_rnn_states_z = np.zeros(r_shape,dtype=np.float32)
 
-        self.value_preds = np.zeros(
-            (self.episode_length + 1, self.n_rollout_threads, num_agents, 1), dtype=np.float32)
-        self.returns = np.zeros_like(self.value_preds)
+        # data : values
+        v_shape = (self.episode_length+1, self.n_rollout_threads, num_agents, 1)
+        self.value_preds = np.zeros(v_shape, dtype=np.float32)
+        self.returns = np.zeros(v_shape, dtype=np.float32)
 
+        # data : actions
+        a_shape = (self.episode_length, self.n_rollout_threads, num_agents, act_shape)
+        self.actions = np.zeros(a_shape, dtype=np.float32)
+        self.action_log_probs = np.zeros(a_shape, dtype=np.float32)
+
+        # data : discriminator
+        d_shape = (self.episode_length+1, self.n_rollout_threads, num_agents, act_shape)
+        self.z_log_probs = np.zeros(d_shape, dtype=np.float32)
+        self.loc_z_log_probs = np.zeros(d_shape, dtype=np.float32)
+
+        # data : rewards
+        r_shape = (self.episode_length, self.n_rollout_threads, num_agents, 1)
+        self.rewards = np.zeros(r_shape, dtype=np.float32)
+
+        # data : masks
+        m_shape = (self.episode_length+1, self.n_rollout_threads, num_agents, 1)
+        self.masks = np.ones(m_shape, dtype=np.float32)
+        self.bad_masks = np.ones(m_shape, dtype=np.float32)
+        self.active_masks = np.ones(m_shape, dtype=np.float32)
         if act_space.__class__.__name__ == 'Discrete':
-            self.available_actions = np.ones((self.episode_length + 1, self.n_rollout_threads, num_agents, act_space.n),
-                                             dtype=np.float32)
+            a_shape = (self.episode_length+1, self.n_rollout_threads, num_agents, act_space.n)
+            self.available_actions = np.ones(a_shape, dtype=np.float32)
         else:
             self.available_actions = None
 
-        act_shape = get_shape_from_act_space(act_space)
-
-        self.actions = np.zeros(
-            (self.episode_length, self.n_rollout_threads, num_agents, act_shape), dtype=np.float32)
-        self.action_log_probs = np.zeros(
-            (self.episode_length, self.n_rollout_threads, num_agents, act_shape), dtype=np.float32)
-        self.rewards = np.zeros(
-            (self.episode_length, self.n_rollout_threads, num_agents, 1), dtype=np.float32)
-
-        self.masks = np.ones((self.episode_length + 1, self.n_rollout_threads, num_agents, 1), dtype=np.float32)
-        self.bad_masks = np.ones_like(self.masks)
-        self.active_masks = np.ones_like(self.masks)
-
         self.step = 0
 
-    def insert(self, share_obs, obs, rnn_states_actor, rnn_states_critic, actions, action_log_probs,
-               value_preds, rewards, masks, bad_masks=None, active_masks=None, available_actions=None):
-        """
-        Insert data into the buffer.
-        :param share_obs: (argparse.Namespace) arguments containing relevant model, policy, and env information.
-        :param obs: (np.ndarray) local agent observations.
-        :param rnn_states_actor: (np.ndarray) RNN states for actor network.
-        :param rnn_states_critic: (np.ndarray) RNN states for critic network.
-        :param actions:(np.ndarray) actions taken by agents.
-        :param action_log_probs:(np.ndarray) log probs of actions taken by agents
-        :param value_preds: (np.ndarray) value function prediction at each step.
-        :param rewards: (np.ndarray) reward collected at each step.
-        :param masks: (np.ndarray) denotes whether the environment has terminated or not.
-        :param bad_masks: (np.ndarray) action space for agents.
-        :param active_masks: (np.ndarray) denotes whether an agent is active or dead in the env.
-        :param available_actions: (np.ndarray) actions available to each agent. If None, all actions are available.
-        """
-        self.share_obs[self.step + 1] = share_obs.copy()
-        self.obs[self.step + 1] = obs.copy()
-        self.rnn_states[self.step + 1] = rnn_states_actor.copy()
-        self.rnn_states_critic[self.step + 1] = rnn_states_critic.copy()
-        self.actions[self.step] = actions.copy()
-        self.action_log_probs[self.step] = action_log_probs.copy()
-        self.value_preds[self.step] = value_preds.copy()
-        self.rewards[self.step] = rewards.copy()
-        self.masks[self.step + 1] = masks.copy()
-        if bad_masks is not None:
-            self.bad_masks[self.step + 1] = bad_masks.copy()
-        if active_masks is not None:
-            self.active_masks[self.step + 1] = active_masks.copy()
-        if available_actions is not None:
-            self.available_actions[self.step + 1] = available_actions.copy()
+    def insert(self, data, step):
+        
+        self.step = step
 
-        self.step = (self.step + 1) % self.episode_length
+        key2var = {
+            'share_obs':[self.share_obs,1],
+            'obs':[self.obs,1],
+            'rnn_states_actor':[self.rnn_states,1],
+            'rnn_states_critic':[self.rnn_states_critic,1],
+            'rnn_states_z':[self.rnn_states_z,1],
+            'loc_rnn_states_z':[self.loc_rnn_states_z,1],
+            'actions':[self.actions,0],
+            'action_log_probs':[self.action_log_probs,0],
+            'z_log_probs':[self.z_log_probs,1],
+            'loc_z_log_probs':[self.loc_z_log_probs,1],
+            'value_preds':[self.value_preds,0],
+            'rewards':[self.rewards,0],
+            'masks':[self.masks,1],
+            'bad_masks':[self.bad_masks,1],
+            'active_masks':[self.active_masks,1],
+            'available_actions':[self.available_actions,1],
+        }
 
-    def chooseinsert(self, share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs,
-                     value_preds, rewards, masks, bad_masks=None, active_masks=None, available_actions=None):
-        """
-        Insert data into the buffer. This insert function is used specifically for Hanabi, which is turn based.
-        :param share_obs: (argparse.Namespace) arguments containing relevant model, policy, and env information.
-        :param obs: (np.ndarray) local agent observations.
-        :param rnn_states_actor: (np.ndarray) RNN states for actor network.
-        :param rnn_states_critic: (np.ndarray) RNN states for critic network.
-        :param actions:(np.ndarray) actions taken by agents.
-        :param action_log_probs:(np.ndarray) log probs of actions taken by agents
-        :param value_preds: (np.ndarray) value function prediction at each step.
-        :param rewards: (np.ndarray) reward collected at each step.
-        :param masks: (np.ndarray) denotes whether the environment has terminated or not.
-        :param bad_masks: (np.ndarray) denotes indicate whether whether true terminal state or due to episode limit
-        :param active_masks: (np.ndarray) denotes whether an agent is active or dead in the env.
-        :param available_actions: (np.ndarray) actions available to each agent. If None, all actions are available.
-        """
-        self.share_obs[self.step] = share_obs.copy()
-        self.obs[self.step] = obs.copy()
-        self.rnn_states[self.step + 1] = rnn_states.copy()
-        self.rnn_states_critic[self.step + 1] = rnn_states_critic.copy()
-        self.actions[self.step] = actions.copy()
-        self.action_log_probs[self.step] = action_log_probs.copy()
-        self.value_preds[self.step] = value_preds.copy()
-        self.rewards[self.step] = rewards.copy()
-        self.masks[self.step + 1] = masks.copy()
-        if bad_masks is not None:
-            self.bad_masks[self.step + 1] = bad_masks.copy()
-        if active_masks is not None:
-            self.active_masks[self.step] = active_masks.copy()
-        if available_actions is not None:
-            self.available_actions[self.step] = available_actions.copy()
+        for key in data:
+            if key not in ['dones']:
+                var = key2var[key][0]
+                idx = key2var[key][1] + self.step
+                var[idx] = data[key].copy()
 
-        self.step = (self.step + 1) % self.episode_length
 
     def after_update(self):
         """Copy last timestep data to first index. Called after update to model."""
@@ -156,20 +127,13 @@ class SharedReplayBuffer(object):
         self.loc_rnn_states_z[0] = self.loc_rnn_states_z[-1].copy()
         self.rnn_states[0] = self.rnn_states[-1].copy()
         self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
+        self.z_log_probs[0] = self.z_log_probs[-1].copy()
+        self.loc_z_log_probs[0] = self.loc_z_log_probs[-1].copy()
         self.masks[0] = self.masks[-1].copy()
         self.bad_masks[0] = self.bad_masks[-1].copy()
         self.active_masks[0] = self.active_masks[-1].copy()
         if self.available_actions is not None:
             self.available_actions[0] = self.available_actions[-1].copy()
-
-    def chooseafter_update(self):
-        """Copy last timestep data to first index. This method is used for Hanabi."""
-        self.rnn_states[0] = self.rnn_states[-1].copy()
-        self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
-        self.rnn_states_z[0] = self.rnn_states_z[-1].copy()
-        self.loc_rnn_states_z[0] = self.loc_rnn_states_z[-1].copy()
-        self.masks[0] = self.masks[-1].copy()
-        self.bad_masks[0] = self.bad_masks[-1].copy()
 
     def compute_returns(self, next_value, value_normalizer=None):
         """

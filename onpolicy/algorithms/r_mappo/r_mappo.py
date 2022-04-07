@@ -91,7 +91,7 @@ class R_MAPPO():
 
         return value_loss
 
-    def ppo_update(self, sample, update_actor=True):
+    def ppo_update(self, sample, train_info, update_actor=True):
         """
         Update actor and critic networks.
         :param sample: (Tuple) contains data batch with which to update networks.
@@ -164,35 +164,52 @@ class R_MAPPO():
         self.policy.critic_optimizer.step()
 
         # discriminator update
-        obs_mask_batch = np.random.random(share_obs_batch.shape)
-        obs_mask_batch = obs_mask_batch > 0.9
-        share_obs_batch = share_obs_batch * obs_mask_batch
-
         z_log_probs, _ = self.policy.evaluate_z(
             share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
 
-        loc_z_log_probs, _ = self.policy.evaluate_local_z(
-            obs_batch, loc_rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
-        
         z_loss = -torch.mean(z_log_probs)
+
         self.policy.discri_optimizer.zero_grad()
+
         z_loss.backward()
+
         if self._use_max_grad_norm:
             z_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
         else:
             z_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
-        self.policy.discri_optimizer.step()
 
+        self.policy.discri_optimizer.step()
+    
+        # local discriminator update
+        loc_z_log_probs, _ = self.policy.evaluate_local_z(
+            obs_batch, loc_rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
+        
         loc_z_loss = -torch.mean(loc_z_log_probs)
+
         self.policy.local_discri_optimizer.zero_grad()
+
         loc_z_loss.backward()
+
         if self._use_max_grad_norm:
             loc_z_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
         else:
             loc_z_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
+            
         self.policy.local_discri_optimizer.step()
 
-        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, z_loss, loc_z_loss
+        train_info = dict()
+        train_info['value_loss'] = value_loss
+        train_info['policy_loss'] = policy_loss
+        train_info['dist_entropy'] = dist_entropy
+        train_info['z_loss'] = z_loss
+        train_info['loc_z_loss'] = loc_z_loss
+        train_info['imp_weight'] = imp_weights.mean()
+        train_info['critic_grad_norm'] = critic_grad_norm
+        train_info['actor_grad_norm'] = actor_grad_norm
+        train_info['loc_z_grad_norm'] = loc_z_grad_norm
+        train_info['z_grad_norm'] = z_grad_norm
+
+        return train_info
 
     def train(self, buffer, update_actor=True):
         """
@@ -213,16 +230,7 @@ class R_MAPPO():
         advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
         
 
-        train_info = {}
-
-        train_info['z_loss'] = 0
-        train_info['z_loc_loss'] = 0
-        train_info['value_loss'] = 0
-        train_info['policy_loss'] = 0
-        train_info['dist_entropy'] = 0
-        train_info['actor_grad_norm'] = 0
-        train_info['critic_grad_norm'] = 0
-        train_info['ratio'] = 0
+        train_info = dict()
 
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy:
@@ -234,17 +242,13 @@ class R_MAPPO():
 
             for sample in data_generator:
 
-                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, z_loss, z_loc_loss \
-                    = self.ppo_update(sample, update_actor)
+                info = self.ppo_update(sample, update_actor)
 
-                train_info['z_loss'] += z_loss.item()
-                train_info['z_loc_loss'] += z_loc_loss.item()
-                train_info['value_loss'] += value_loss.item()
-                train_info['policy_loss'] += policy_loss.item()
-                train_info['dist_entropy'] += dist_entropy.item()
-                train_info['actor_grad_norm'] += actor_grad_norm
-                train_info['critic_grad_norm'] += critic_grad_norm
-                train_info['ratio'] += imp_weights.mean()
+                for key in info:
+                    if key in train_info:
+                        train_info[key] += info[key]
+                    else:
+                        train_info[key] = info[key]
 
         num_updates = self.ppo_epoch * self.num_mini_batch
 

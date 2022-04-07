@@ -20,22 +20,45 @@ class MPERunner(Runner):
         episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
 
         for episode in range(episodes):
+
             if self.use_linear_lr_decay:
                 self.trainer.policy.lr_decay(episode, episodes)
 
             for step in range(self.episode_length):
+
                 # Sample actions
                 values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(step)
                     
                 # Obser reward and next obs
                 obs, rewards, dones, infos = self.envs.step(actions_env)
 
-                data = obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic
+                # # soft learning
+                # rewards -= action_log_probs
 
                 # insert data into buffer
-                self.insert(data)
+                data = dict()
+                data['obs'] = obs
+                data['share_obs'] = self.obs2shareobs(obs.copy())
+                data['rnn_states_actor'] = rnn_states
+                data['rnn_states_critic'] = rnn_states_critic
+                data['actions'] = actions
+                data['action_log_probs'] = action_log_probs
+                data['value_preds'] = values
+                data['rewards'] = rewards
+                data['dones'] = dones
+                self.insert(data, step)
+
+                # VMAPD
+                z_log_probs, loc_z_log_probs, rnn_states_z, loc_rnn_states_z = self.VMAPD_collect(step)
+                data = dict()
+                data['rnn_states_z'] = rnn_states_z
+                data['loc_rnn_states_z'] = loc_rnn_states_z
+                data['z_log_probs'] = z_log_probs
+                data['loc_z_log_probs'] = loc_z_log_probs
+                data['dones'] = dones
+                self.insert(data, step)
+                self.buffer.rewards[step] += self.buffer.z_log_probs[step+1]
                 
-                self.add_reward(step)
 
             # compute return and update network
             self.compute()
@@ -81,55 +104,46 @@ class MPERunner(Runner):
                 self.eval(total_num_steps)
 
     def warmup(self):
-        # reset env
+        
         obs = self.envs.reset()
-
-        # replay buffer
-        if self.use_centralized_V:
-            share_obs = obs.reshape(self.n_rollout_threads, -1)
-            share_obs = np.expand_dims(share_obs, 1).repeat(self.num_agents, axis=1)
-        else:
-            share_obs = obs
+        share_obs = self.obs2shareobs(obs)
         
-        share_obs = self.shareobs_spliter(share_obs)
-        
-        self.buffer.share_obs[0] = share_obs.copy()
         self.buffer.obs[0] = obs.copy()
+        self.buffer.share_obs[0] = share_obs.copy()
 
     @torch.no_grad()
-    def add_reward(self, step):
+    def VMAPD_collect(self, step):
         self.trainer.prep_rollout()
         z_log_prob, rnn_state_z = self.trainer.policy.evaluate_z(
-            np.concatenate(self.buffer.share_obs[step]),
+            np.concatenate(self.buffer.share_obs[step+1]),
             np.concatenate(self.buffer.rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step])
+            np.concatenate(self.buffer.masks[step+1])
         )
         loc_z_log_prob, loc_rnn_state_z = self.trainer.policy.evaluate_local_z(
-            np.concatenate(self.buffer.obs[step]),
+            np.concatenate(self.buffer.obs[step+1]),
             np.concatenate(self.buffer.loc_rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step])
+            np.concatenate(self.buffer.masks[step+1])
         )
         # [self.envs, agents, dim]
         z_log_probs = np.array(np.split(_t2n(z_log_prob), self.n_rollout_threads))
         rnn_states_z = np.array(np.split(_t2n(rnn_state_z), self.n_rollout_threads))
         loc_z_log_probs = np.array(np.split(_t2n(loc_z_log_prob), self.n_rollout_threads))
         loc_rnn_states_z = np.array(np.split(_t2n(loc_rnn_state_z), self.n_rollout_threads))
-        loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
-        self.buffer.rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
-        self.buffer.loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
-        self.buffer.rewards[step] += 2*z_log_probs.copy() # change!!!
-        self.buffer.rewards[step] -= loc_rewards.copy()
-        # self.buffer.rewards[step] += z_log_probs.copy()
+        # loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
+
+        return z_log_probs, loc_z_log_probs, rnn_states_z, loc_rnn_states_z
 
     @torch.no_grad()
     def collect(self, step):
         self.trainer.prep_rollout()
         value, action, action_log_prob, rnn_states, rnn_states_critic \
-            = self.trainer.policy.get_actions(np.concatenate(self.buffer.share_obs[step]),
-                            np.concatenate(self.buffer.obs[step]),
-                            np.concatenate(self.buffer.rnn_states[step]),
-                            np.concatenate(self.buffer.rnn_states_critic[step]),
-                            np.concatenate(self.buffer.masks[step]))
+            = self.trainer.policy.get_actions(
+                np.concatenate(self.buffer.share_obs[step]),
+                np.concatenate(self.buffer.obs[step]),
+                np.concatenate(self.buffer.rnn_states[step]),
+                np.concatenate(self.buffer.rnn_states_critic[step]),
+                np.concatenate(self.buffer.masks[step])
+            )
         # [self.envs, agents, dim]
         values = np.array(np.split(_t2n(value), self.n_rollout_threads))
         actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
@@ -137,42 +151,39 @@ class MPERunner(Runner):
         rnn_states = np.array(np.split(_t2n(rnn_states), self.n_rollout_threads))
         rnn_states_critic = np.array(np.split(_t2n(rnn_states_critic), self.n_rollout_threads))
         # rearrange action
-        if self.envs.action_space[0].__class__.__name__ == 'MultiDiscrete':
-            for i in range(self.envs.action_space[0].shape):
-                uc_actions_env = np.eye(self.envs.action_space[0].high[i] + 1)[actions[:, :, i]]
-                if i == 0:
-                    actions_env = uc_actions_env
-                else:
-                    actions_env = np.concatenate((actions_env, uc_actions_env), axis=2)
-        elif self.envs.action_space[0].__class__.__name__ == 'Discrete':
-            actions_env = np.squeeze(np.eye(self.envs.action_space[0].n)[actions], 2)
-        else:
-            raise NotImplementedError
+        actions_env = np.squeeze(np.eye(self.envs.action_space[0].n)[actions], 2)
 
         return values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env
 
-    def insert(self, data):
-        obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic = data
-
-        rnn_states[dones == True] = np.zeros(((dones == True).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
-        rnn_states_critic[dones == True] = np.zeros(((dones == True).sum(), *self.buffer.rnn_states_critic.shape[3:]), dtype=np.float32)
-        masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-        masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
-
-        if self.use_centralized_V:
-            share_obs = obs.reshape(self.n_rollout_threads, -1)
-            share_obs = np.expand_dims(share_obs, 1).repeat(self.num_agents, axis=1)
-        else:
-            share_obs = obs
-        share_obs = self.shareobs_spliter(share_obs)
+    def insert(self, data, step):    
         
-        self.buffer.insert(share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs, values, rewards, masks)
+        dones = (data['dones']==True)
+        if 'rnn_states_actor' in data:
+            data['rnn_states_actor'][dones] = \
+                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+        if 'rnn_states_critic' in data:
+            data['rnn_states_critic'][dones] = \
+                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+        if 'rnn_states_z' in data:
+            data['rnn_states_z'][dones] = \
+                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+        if 'loc_rnn_states_z' in data:
+            data['loc_rnn_states_z'][dones] = \
+                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+
+        data['masks'] = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
+        data['masks'][dones] = np.zeros(((dones).sum(), 1), dtype=np.float32)
+        
+        self.buffer.insert(data, step)
     
-    def shareobs_spliter(self, share_obs): # need prettify
-        z_vec = share_obs[:,:,:self.max_z]
-        share_obs = share_obs.reshape([self.n_rollout_threads, self.num_agents, self.num_agents, -1])
-        share_obs = share_obs[:,:,:,self.max_z:]
-        share_obs = share_obs.reshape([self.n_rollout_threads, self.num_agents, -1])
+    def obs2shareobs(self, obs):
+        # input : [n_rollout, n_agents, z_num+obs_size]
+        # output : [n_rollout, n_agents, z_num+obs_size*n_agents]
+        z_vec = obs[:,:,:self.max_z]
+        o_vec = obs[:,:,self.max_z:]
+        share_obs = o_vec.reshape([self.n_rollout_threads, -1])
+        share_obs = np.expand_dims(share_obs, 1)
+        share_obs = share_obs.repeat(self.num_agents, axis=1)
         share_obs = np.concatenate([z_vec, share_obs], -1)
         return share_obs
 
