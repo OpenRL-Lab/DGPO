@@ -15,20 +15,23 @@ class AlphaModel(nn.Module):
         self.tpdv = dict(dtype=torch.float32, device=device)
         self.max_z = args.max_z
         if coeff is None:
-            print('create auto alpha, start from 0')
             self.exp_coeff = nn.Parameter(torch.ones(self.max_z))
         else:
-            coeff = max(coeff, 0)
-            self.exp_coeff = torch.exp(torch.tensor([coeff]))
+            raise NotImplementedError
 
-    def get_coeff_loss(self, target_value, value_now):
-        value_diff = max(target_value - np.mean(value_now), 0.)
-        coeff_loss = torch.mean(-check(self.exp_coeff).to(**self.tpdv) * value_diff)
+    def get_coeff_loss(self, target_value, value_now, z_idxs):
+        exp_coeff = check(self.exp_coeff).to(**self.tpdv)
+        target_value = check(target_value).to(**self.tpdv)
+        value_now = check(value_now).to(**self.tpdv)
+        coeff_loss = torch.mean(exp_coeff[z_idxs] * (value_now - target_value))
         return coeff_loss
 
     def get_coeff(self):
+        self.exp_coeff.data.clamp_(1., 1e6)
         with torch.no_grad():
-            return torch.log(self.exp_coeff)
+            coeff = torch.log(self.exp_coeff)
+            coeff.data[0] = 1.
+            return coeff
 
 class R_Discriminator(nn.Module):
     """

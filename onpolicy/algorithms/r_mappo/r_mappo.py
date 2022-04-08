@@ -52,7 +52,7 @@ class R_MAPPO():
             self.ex_value_normalizer = None
             self.in_value_normalizer = None
 
-    def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch, value_norm):
+    def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch, value_norm, z_idxs):
         """
         Calculate value function loss.
         :param values: (torch.Tensor) value function predictions.
@@ -65,7 +65,7 @@ class R_MAPPO():
         value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(-self.clip_param, self.clip_param)
 
         if self._use_popart or self._use_valuenorm:
-            value_norm.update(return_batch)
+            value_norm.update(return_batch, z_idxs)
             error_clipped = value_norm.normalize(return_batch) - value_pred_clipped
             error_original = value_norm.normalize(return_batch) - values
         else:
@@ -119,6 +119,11 @@ class R_MAPPO():
         in_value_preds_batch = check(in_value_preds_batch).to(**self.tpdv)
         old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
 
+        # z_idxs
+        z_vec = obs_batch[:,:self.max_z].copy()
+        z_idx = np.argmax(z_vec, axis=1)
+        z_idxs = np.expand_dims(z_idx, -1)
+
         # Reshape to do in a single forward pass for all steps
         ex_values, in_values, action_log_probs, dist_entropy = self.policy.evaluate_actions(share_obs_batch,
                                                                                             obs_batch, 
@@ -156,7 +161,7 @@ class R_MAPPO():
 
         # extrinsic critic update
         ex_value_loss = self.cal_value_loss(
-            ex_values, ex_value_preds_batch, ex_return_batch, active_masks_batch, self.ex_value_normalizer
+            ex_values, ex_value_preds_batch, ex_return_batch, active_masks_batch, self.ex_value_normalizer, z_idxs
         )
 
         self.policy.ex_critic_optimizer.zero_grad()
@@ -172,7 +177,7 @@ class R_MAPPO():
 
         # intrinsic critic update
         in_value_loss = self.cal_value_loss(
-            in_values, in_value_preds_batch, in_return_batch, active_masks_batch, self.in_value_normalizer
+            in_values, in_value_preds_batch, in_return_batch, active_masks_batch, self.in_value_normalizer, z_idxs
         )
 
         self.policy.in_critic_optimizer.zero_grad()
@@ -220,6 +225,22 @@ class R_MAPPO():
             
         self.policy.local_discri_optimizer.step()
 
+        # alpha model update
+        target_value = self.ex_value_normalizer.running_mean_z0.detach()
+        cur_value = self.ex_value_normalizer.denormalize(ex_value_preds_batch)
+        alpha_loss = self.policy.alpha_model.get_coeff_loss(target_value, cur_value, z_idxs)
+
+        self.policy.alpha_optimizer.zero_grad()
+
+        alpha_loss.backward()
+
+        if self._use_max_grad_norm:
+            alpha_grad_norm = nn.utils.clip_grad_norm_(self.policy.alpha_model.parameters(), self.max_grad_norm)
+        else:
+            alpha_grad_norm = get_gard_norm(self.policy.alpha_model.parameters())
+            
+        self.policy.alpha_optimizer.step()
+
         train_info = dict()
         train_info['ex_value_loss'] = ex_value_loss
         train_info['in_value_loss'] = in_value_loss
@@ -227,12 +248,14 @@ class R_MAPPO():
         train_info['dist_entropy'] = dist_entropy
         train_info['z_loss'] = z_loss
         train_info['loc_z_loss'] = loc_z_loss
+        train_info['alpha_loss'] = alpha_loss
         train_info['imp_weight'] = imp_weights.mean()
         train_info['ex_critic_grad_norm'] = ex_critic_grad_norm
         train_info['in_critic_grad_norm'] = in_critic_grad_norm
         train_info['actor_grad_norm'] = actor_grad_norm
         train_info['loc_z_grad_norm'] = loc_z_grad_norm
         train_info['z_grad_norm'] = z_grad_norm
+        train_info['alpha_grad_norm'] = alpha_grad_norm
 
         return train_info
 
@@ -246,11 +269,11 @@ class R_MAPPO():
         """
         
         if self._use_popart or self._use_valuenorm:
-            # z_idx = np.argmax(buffer.obs[:-1,:,:,:self.max_z], -1)
-            # z_idxs = np.expand_dims(z_idx, -1)
-            # alpha = self.policy.alpha_model.get_coeff().cpu().numpy()[z_idxs]
-            total_return = buffer.ex_returns[:-1] + buffer.in_returns[:-1]
-            total_preds = self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1]) \
+            z_idx = np.argmax(buffer.obs[:-1,:,:,:self.max_z], -1)
+            z_idxs = np.expand_dims(z_idx, -1)
+            alpha = self.policy.alpha_model.get_coeff().cpu().numpy()
+            total_return = alpha[z_idxs] * buffer.ex_returns[:-1] + buffer.in_returns[:-1]
+            total_preds = alpha[z_idxs] * self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1]) \
                             + self.in_value_normalizer.denormalize(buffer.in_value_preds[:-1])
             advantages = total_return - total_preds
         else:
@@ -289,6 +312,10 @@ class R_MAPPO():
 
         for k in train_info.keys():
             train_info[k] /= num_updates
+        
+        alpha = self.policy.alpha_model.get_coeff()
+        for z in range(self.max_z):
+            train_info['alpha_{}'.format(z)] = alpha[z]
  
         return train_info
 

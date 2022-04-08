@@ -14,6 +14,6 @@ do
     --experiment_name ${exp} --scenario_name ${scenario} --num_agents ${num_agents} \
     --num_landmarks ${num_landmarks} --seed ${seed} --use_ReLU --gain 0.01 \
     --n_training_threads 1 --n_rollout_threads 1 --use_render --episode_length 25 \
-    --model_dir "results/MPE/simple_spread/rmappo/0408_check/wandb/run-20220408_113759-35dinzgw/files" \
+    --model_dir "results/MPE/simple_spread/rmappo/0408_check/wandb/run-20220408_213813-yluvjx47/files" \
     --use_wandb --save_gifs
 done

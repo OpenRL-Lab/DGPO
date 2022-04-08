@@ -34,10 +34,10 @@ class R_MAPPOPolicy:
         self.z_obs_space = z_obs_space
         self.z_local_obs_space = z_local_obs_space
 
-        # self.alpha_model = AlphaModel(args) 
-        # self.alpha_optimizer = torch.optim.Adam(self.alpha_model.parameters(),
-        #                                             lr=self.lr, eps=self.opti_eps,
-        #                                             weight_decay=self.weight_decay)
+        self.alpha_model = AlphaModel(args) 
+        self.alpha_optimizer = torch.optim.Adam(self.alpha_model.parameters(),
+                                                    lr=1e-3, eps=self.opti_eps,
+                                                    weight_decay=self.weight_decay)
         
 
         self.discriminator = R_Discriminator(args, self.z_obs_space, self.z_space, self.device) 
