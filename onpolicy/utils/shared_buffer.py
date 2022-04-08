@@ -53,14 +53,17 @@ class SharedReplayBuffer(object):
         # data : rnn_state
         r_shape = (self.episode_length+1, self.n_rollout_threads, num_agents, self.recurrent_N, self.hidden_size)
         self.rnn_states = np.zeros(r_shape,dtype=np.float32)
-        self.rnn_states_critic = np.zeros(r_shape,dtype=np.float32)
+        self.rnn_states_ex_critic = np.zeros(r_shape,dtype=np.float32)
+        self.rnn_states_in_critic = np.zeros(r_shape,dtype=np.float32)
         self.rnn_states_z = np.zeros(r_shape,dtype=np.float32)
         self.loc_rnn_states_z = np.zeros(r_shape,dtype=np.float32)
 
         # data : values
         v_shape = (self.episode_length+1, self.n_rollout_threads, num_agents, 1)
-        self.value_preds = np.zeros(v_shape, dtype=np.float32)
-        self.returns = np.zeros(v_shape, dtype=np.float32)
+        self.ex_value_preds = np.zeros(v_shape, dtype=np.float32)
+        self.in_value_preds = np.zeros(v_shape, dtype=np.float32)
+        self.ex_returns = np.zeros(v_shape, dtype=np.float32)
+        self.in_returns = np.zeros(v_shape, dtype=np.float32)
 
         # data : actions
         a_shape = (self.episode_length, self.n_rollout_threads, num_agents, act_shape)
@@ -97,14 +100,16 @@ class SharedReplayBuffer(object):
             'share_obs':[self.share_obs,1],
             'obs':[self.obs,1],
             'rnn_states_actor':[self.rnn_states,1],
-            'rnn_states_critic':[self.rnn_states_critic,1],
+            'rnn_states_ex_critic':[self.rnn_states_ex_critic,1],
+            'rnn_states_in_critic':[self.rnn_states_in_critic,1],
             'rnn_states_z':[self.rnn_states_z,1],
             'loc_rnn_states_z':[self.loc_rnn_states_z,1],
             'actions':[self.actions,0],
             'action_log_probs':[self.action_log_probs,0],
             'z_log_probs':[self.z_log_probs,1],
             'loc_z_log_probs':[self.loc_z_log_probs,1],
-            'value_preds':[self.value_preds,0],
+            'ex_value_preds':[self.ex_value_preds,0],
+            'in_value_preds':[self.in_value_preds,0],
             'rewards':[self.rewards,0],
             'masks':[self.masks,1],
             'bad_masks':[self.bad_masks,1],
@@ -126,7 +131,8 @@ class SharedReplayBuffer(object):
         self.rnn_states_z[0] = self.rnn_states_z[-1].copy()
         self.loc_rnn_states_z[0] = self.loc_rnn_states_z[-1].copy()
         self.rnn_states[0] = self.rnn_states[-1].copy()
-        self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
+        self.rnn_states_ex_critic[0] = self.rnn_states_ex_critic[-1].copy()
+        self.rnn_states_in_critic[0] = self.rnn_states_in_critic[-1].copy()
         self.z_log_probs[0] = self.z_log_probs[-1].copy()
         self.loc_z_log_probs[0] = self.loc_z_log_probs[-1].copy()
         self.masks[0] = self.masks[-1].copy()
@@ -135,12 +141,31 @@ class SharedReplayBuffer(object):
         if self.available_actions is not None:
             self.available_actions[0] = self.available_actions[-1].copy()
 
-    def compute_returns(self, next_value, value_normalizer=None):
+    def compute_returns(self, next_ex_value, next_in_value, ex_value_normalizer=None, in_value_normalizer=None):
+        # extrinsic return 
+        gae = 0
+        self.ex_value_preds[-1] = next_ex_value
+        for step in reversed(range(self.rewards.shape[0])):
+            value_tp1 = ex_value_normalizer.denormalize(self.ex_value_preds[step+1])
+            value_t = ex_value_normalizer.denormalize(self.ex_value_preds[step])
+            delta = self.rewards[step] + self.gamma * value_tp1 * self.masks[step + 1] - value_t
+            gae = delta + self.gamma * self.gae_lambda * self.masks[step + 1] * gae
+            self.ex_returns[step] = gae + value_t
+        # intrinsic return 
+        gae = 0
+        self.in_value_preds[-1] = next_in_value
+        for step in reversed(range(self.z_log_probs[:-1].shape[0])):
+            value_tp1 = in_value_normalizer.denormalize(self.in_value_preds[step+1])
+            value_t = in_value_normalizer.denormalize(self.in_value_preds[step])
+            delta = self.z_log_probs[step] + self.gamma * value_tp1 * self.masks[step+1] - value_t
+            gae = delta + self.gamma * self.gae_lambda * self.masks[step+1] * gae
+            self.in_returns[step] = gae + value_t
+  
         """
         Compute returns either as discounted sum of rewards, or using GAE.
         :param next_value: (np.ndarray) value predictions for the step after the last episode step.
         :param value_normalizer: (PopArt) If not None, PopArt value normalizer instance.
-        """
+        
         if self._use_proper_time_limits:
             if self._use_gae:
                 self.value_preds[-1] = next_value
@@ -192,6 +217,7 @@ class SharedReplayBuffer(object):
                 self.returns[-1] = next_value
                 for step in reversed(range(self.rewards.shape[0])):
                     self.returns[step] = self.returns[step + 1] * self.gamma * self.masks[step + 1] + self.rewards[step]
+        """ 
 
     def feed_forward_generator(self, advantages, num_mini_batch=None, mini_batch_size=None):
         """
@@ -377,17 +403,22 @@ class SharedReplayBuffer(object):
         actions = _cast(self.actions)
         action_log_probs = _cast(self.action_log_probs)
         advantages = _cast(advantages)
-        value_preds = _cast(self.value_preds[:-1])
-        returns = _cast(self.returns[:-1])
+        ex_value_preds = _cast(self.ex_value_preds[:-1])
+        in_value_preds = _cast(self.in_value_preds[:-1])
+        ex_returns = _cast(self.ex_returns[:-1])
+        in_returns = _cast(self.in_returns[:-1])
         masks = _cast(self.masks[:-1])
         active_masks = _cast(self.active_masks[:-1])
-        # rnn_states = _cast(self.rnn_states[:-1])
-        # rnn_states_critic = _cast(self.rnn_states_critic[:-1])
-        rnn_states = self.rnn_states[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.rnn_states.shape[3:])
-        rnn_states_z = self.rnn_states_z[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.rnn_states_z.shape[3:])
-        loc_rnn_states_z = self.loc_rnn_states_z[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.loc_rnn_states_z.shape[3:])
-        rnn_states_critic = \
-            self.rnn_states_critic[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.rnn_states_critic.shape[3:])
+        rnn_states = \
+            self.rnn_states[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.rnn_states.shape[3:])
+        rnn_states_z = \
+            self.rnn_states_z[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.rnn_states_z.shape[3:])
+        loc_rnn_states_z = \
+            self.loc_rnn_states_z[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.loc_rnn_states_z.shape[3:])
+        rnn_states_ex_critic = \
+            self.rnn_states_ex_critic[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.rnn_states_ex_critic.shape[3:])
+        rnn_states_in_critic = \
+            self.rnn_states_in_critic[:-1].transpose(1, 2, 0, 3, 4).reshape(-1, *self.rnn_states_in_critic.shape[3:])
 
         if self.available_actions is not None:
             available_actions = _cast(self.available_actions[:-1])
@@ -398,11 +429,14 @@ class SharedReplayBuffer(object):
             rnn_states_batch = []
             rnn_states_z_batch = []
             loc_rnn_states_z_batch = []
-            rnn_states_critic_batch = []
+            rnn_states_ex_critic_batch = []
+            rnn_states_in_critic_batch = []
             actions_batch = []
             available_actions_batch = []
-            value_preds_batch = []
-            return_batch = []
+            ex_value_preds_batch = []
+            in_value_preds_batch = []
+            ex_return_batch = []
+            in_return_batch = []
             masks_batch = []
             active_masks_batch = []
             old_action_log_probs_batch = []
@@ -417,8 +451,10 @@ class SharedReplayBuffer(object):
                 actions_batch.append(actions[ind:ind + data_chunk_length])
                 if self.available_actions is not None:
                     available_actions_batch.append(available_actions[ind:ind + data_chunk_length])
-                value_preds_batch.append(value_preds[ind:ind + data_chunk_length])
-                return_batch.append(returns[ind:ind + data_chunk_length])
+                ex_value_preds_batch.append(ex_value_preds[ind:ind + data_chunk_length])
+                in_value_preds_batch.append(in_value_preds[ind:ind + data_chunk_length])
+                ex_return_batch.append(ex_returns[ind:ind + data_chunk_length])
+                in_return_batch.append(in_returns[ind:ind + data_chunk_length])
                 masks_batch.append(masks[ind:ind + data_chunk_length])
                 active_masks_batch.append(active_masks[ind:ind + data_chunk_length])
                 old_action_log_probs_batch.append(action_log_probs[ind:ind + data_chunk_length])
@@ -427,7 +463,8 @@ class SharedReplayBuffer(object):
                 rnn_states_batch.append(rnn_states[ind])
                 loc_rnn_states_z_batch.append(loc_rnn_states_z[ind])
                 rnn_states_z_batch.append(rnn_states_z[ind])
-                rnn_states_critic_batch.append(rnn_states_critic[ind])
+                rnn_states_ex_critic_batch.append(rnn_states_ex_critic[ind])
+                rnn_states_in_critic_batch.append(rnn_states_in_critic[ind])
 
             L, N = data_chunk_length, mini_batch_size
 
@@ -438,8 +475,10 @@ class SharedReplayBuffer(object):
             actions_batch = np.stack(actions_batch, axis=1)
             if self.available_actions is not None:
                 available_actions_batch = np.stack(available_actions_batch, axis=1)
-            value_preds_batch = np.stack(value_preds_batch, axis=1)
-            return_batch = np.stack(return_batch, axis=1)
+            ex_value_preds_batch = np.stack(ex_value_preds_batch, axis=1)
+            in_value_preds_batch = np.stack(in_value_preds_batch, axis=1)
+            ex_return_batch = np.stack(ex_return_batch, axis=1)
+            in_return_batch = np.stack(in_return_batch, axis=1)
             masks_batch = np.stack(masks_batch, axis=1)
             active_masks_batch = np.stack(active_masks_batch, axis=1)
             old_action_log_probs_batch = np.stack(old_action_log_probs_batch, axis=1)
@@ -449,7 +488,8 @@ class SharedReplayBuffer(object):
             rnn_states_batch = np.stack(rnn_states_batch).reshape(N, *self.rnn_states.shape[3:])
             rnn_states_z_batch = np.stack(rnn_states_z_batch).reshape(N, *self.rnn_states_z.shape[3:])
             loc_rnn_states_z_batch = np.stack(loc_rnn_states_z_batch).reshape(N, *self.loc_rnn_states_z.shape[3:])
-            rnn_states_critic_batch = np.stack(rnn_states_critic_batch).reshape(N, *self.rnn_states_critic.shape[3:])
+            rnn_states_ex_critic_batch = np.stack(rnn_states_ex_critic_batch).reshape(N, *self.rnn_states_ex_critic.shape[3:])
+            rnn_states_in_critic_batch = np.stack(rnn_states_in_critic_batch).reshape(N, *self.rnn_states_in_critic.shape[3:])
 
             # Flatten the (L, N, ...) from_numpys to (L * N, ...)
             share_obs_batch = _flatten(L, N, share_obs_batch)
@@ -459,13 +499,18 @@ class SharedReplayBuffer(object):
                 available_actions_batch = _flatten(L, N, available_actions_batch)
             else:
                 available_actions_batch = None
-            value_preds_batch = _flatten(L, N, value_preds_batch)
-            return_batch = _flatten(L, N, return_batch)
+            ex_value_preds_batch = _flatten(L, N, ex_value_preds_batch)
+            in_value_preds_batch = _flatten(L, N, in_value_preds_batch)
+            ex_return_batch = _flatten(L, N, ex_return_batch)
+            in_return_batch = _flatten(L, N, in_return_batch)
             masks_batch = _flatten(L, N, masks_batch)
             active_masks_batch = _flatten(L, N, active_masks_batch)
             old_action_log_probs_batch = _flatten(L, N, old_action_log_probs_batch)
             adv_targ = _flatten(L, N, adv_targ)
 
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_z_batch, loc_rnn_states_z_batch, rnn_states_critic_batch, actions_batch,\
-                  value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch,\
-                  adv_targ, available_actions_batch
+            yield share_obs_batch, obs_batch, \
+                    rnn_states_batch, rnn_states_z_batch, loc_rnn_states_z_batch, \
+                    rnn_states_ex_critic_batch, rnn_states_in_critic_batch, \
+                    actions_batch, ex_value_preds_batch, in_value_preds_batch, \
+                    ex_return_batch, in_return_batch, masks_batch, active_masks_batch, \
+                    old_action_log_probs_batch, adv_targ, available_actions_batch

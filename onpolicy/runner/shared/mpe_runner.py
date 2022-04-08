@@ -27,7 +27,8 @@ class MPERunner(Runner):
             for step in range(self.episode_length):
 
                 # Sample actions
-                values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(step)
+                ex_values, in_values, actions, action_log_probs, rnn_states, \
+                    rnn_states_ex_critic, rnn_states_in_critic, actions_env = self.collect(step)
                     
                 # Obser reward and next obs
                 obs, rewards, dones, infos = self.envs.step(actions_env)
@@ -40,10 +41,12 @@ class MPERunner(Runner):
                 data['obs'] = obs
                 data['share_obs'] = self.obs2shareobs(obs.copy())
                 data['rnn_states_actor'] = rnn_states
-                data['rnn_states_critic'] = rnn_states_critic
+                data['rnn_states_ex_critic'] = rnn_states_ex_critic
+                data['rnn_states_in_critic'] = rnn_states_in_critic
                 data['actions'] = actions
                 data['action_log_probs'] = action_log_probs
-                data['value_preds'] = values
+                data['ex_value_preds'] = ex_values
+                data['in_value_preds'] = in_values
                 data['rewards'] = rewards
                 data['dones'] = dones
                 self.insert(data, step)
@@ -57,7 +60,6 @@ class MPERunner(Runner):
                 data['loc_z_log_probs'] = loc_z_log_probs
                 data['dones'] = dones
                 self.insert(data, step)
-                self.buffer.rewards[step] += self.buffer.z_log_probs[step+1]
                 
 
             # compute return and update network
@@ -115,14 +117,14 @@ class MPERunner(Runner):
     def VMAPD_collect(self, step):
         self.trainer.prep_rollout()
         z_log_prob, rnn_state_z = self.trainer.policy.evaluate_z(
-            np.concatenate(self.buffer.share_obs[step+1]),
+            np.concatenate(self.buffer.share_obs[step]),
             np.concatenate(self.buffer.rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step+1])
+            np.concatenate(self.buffer.masks[step])
         )
         loc_z_log_prob, loc_rnn_state_z = self.trainer.policy.evaluate_local_z(
-            np.concatenate(self.buffer.obs[step+1]),
+            np.concatenate(self.buffer.obs[step]),
             np.concatenate(self.buffer.loc_rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step+1])
+            np.concatenate(self.buffer.masks[step])
         )
         # [self.envs, agents, dim]
         z_log_probs = np.array(np.split(_t2n(z_log_prob), self.n_rollout_threads))
@@ -136,24 +138,29 @@ class MPERunner(Runner):
     @torch.no_grad()
     def collect(self, step):
         self.trainer.prep_rollout()
-        value, action, action_log_prob, rnn_states, rnn_states_critic \
-            = self.trainer.policy.get_actions(
-                np.concatenate(self.buffer.share_obs[step]),
-                np.concatenate(self.buffer.obs[step]),
-                np.concatenate(self.buffer.rnn_states[step]),
-                np.concatenate(self.buffer.rnn_states_critic[step]),
-                np.concatenate(self.buffer.masks[step])
-            )
+        ex_value, in_value, action, action_log_prob, \
+            rnn_states, rnn_states_ex_critic, rnn_states_in_critic \
+                = self.trainer.policy.get_actions(
+                    np.concatenate(self.buffer.share_obs[step]),
+                    np.concatenate(self.buffer.obs[step]),
+                    np.concatenate(self.buffer.rnn_states[step]),
+                    np.concatenate(self.buffer.rnn_states_ex_critic[step]),
+                    np.concatenate(self.buffer.rnn_states_in_critic[step]),
+                    np.concatenate(self.buffer.masks[step])
+                )
         # [self.envs, agents, dim]
-        values = np.array(np.split(_t2n(value), self.n_rollout_threads))
+        ex_values = np.array(np.split(_t2n(ex_value), self.n_rollout_threads))
+        in_values = np.array(np.split(_t2n(in_value), self.n_rollout_threads))
         actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
         action_log_probs = np.array(np.split(_t2n(action_log_prob), self.n_rollout_threads))
         rnn_states = np.array(np.split(_t2n(rnn_states), self.n_rollout_threads))
-        rnn_states_critic = np.array(np.split(_t2n(rnn_states_critic), self.n_rollout_threads))
+        rnn_states_ex_critic = np.array(np.split(_t2n(rnn_states_ex_critic), self.n_rollout_threads))
+        rnn_states_in_critic = np.array(np.split(_t2n(rnn_states_in_critic), self.n_rollout_threads))
         # rearrange action
         actions_env = np.squeeze(np.eye(self.envs.action_space[0].n)[actions], 2)
 
-        return values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env
+        return ex_values, in_values, actions, action_log_probs, rnn_states,\
+                    rnn_states_ex_critic, rnn_states_in_critic, actions_env
 
     def insert(self, data, step):    
         
@@ -161,8 +168,11 @@ class MPERunner(Runner):
         if 'rnn_states_actor' in data:
             data['rnn_states_actor'][dones] = \
                 np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
-        if 'rnn_states_critic' in data:
-            data['rnn_states_critic'][dones] = \
+        if 'rnn_states_ex_critic' in data:
+            data['rnn_states_ex_critic'][dones] = \
+                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+        if 'rnn_states_in_critic' in data:
+            data['rnn_states_in_critic'][dones] = \
                 np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
         if 'rnn_states_z' in data:
             data['rnn_states_z'][dones] = \

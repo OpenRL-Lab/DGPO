@@ -123,11 +123,15 @@ class Runner(object):
     def compute(self):
         """Calculate returns for the collected data."""
         self.trainer.prep_rollout()
-        next_values = self.trainer.policy.get_values(np.concatenate(self.buffer.share_obs[-1]),
-                                                np.concatenate(self.buffer.rnn_states_critic[-1]),
-                                                np.concatenate(self.buffer.masks[-1]))
-        next_values = np.array(np.split(_t2n(next_values), self.n_rollout_threads))
-        self.buffer.compute_returns(next_values, self.trainer.value_normalizer)
+        next_ex_values, next_in_values = self.trainer.policy.get_values(
+            np.concatenate(self.buffer.share_obs[-1]),
+            np.concatenate(self.buffer.rnn_states_ex_critic[-1]),
+            np.concatenate(self.buffer.rnn_states_in_critic[-1]),
+            np.concatenate(self.buffer.masks[-1])
+        )
+        next_ex_values = np.array(np.split(_t2n(next_ex_values), self.n_rollout_threads))
+        next_in_values = np.array(np.split(_t2n(next_in_values), self.n_rollout_threads))
+        self.buffer.compute_returns(next_ex_values, next_in_values, self.trainer.ex_value_normalizer, self.trainer.in_value_normalizer)
     
     def train(self):
         """Train policies with data in buffer. """
@@ -140,7 +144,7 @@ class Runner(object):
         """Save policy's actor and critic networks."""
         policy_actor = self.trainer.policy.actor
         torch.save(policy_actor.state_dict(), str(self.save_dir) + "/actor.pt")
-        policy_critic = self.trainer.policy.critic
+        policy_critic = self.trainer.policy.ex_critic
         torch.save(policy_critic.state_dict(), str(self.save_dir) + "/critic.pt")
 
     def restore(self):
@@ -149,7 +153,7 @@ class Runner(object):
         self.policy.actor.load_state_dict(policy_actor_state_dict)
         if not self.all_args.use_render:
             policy_critic_state_dict = torch.load(str(self.model_dir) + '/critic.pt')
-            self.policy.critic.load_state_dict(policy_critic_state_dict)
+            self.policy.ex_critic.load_state_dict(policy_critic_state_dict)
  
     def log_train(self, train_infos, total_num_steps):
         """

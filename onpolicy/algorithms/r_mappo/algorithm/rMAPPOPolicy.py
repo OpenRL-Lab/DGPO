@@ -45,11 +45,19 @@ class R_MAPPOPolicy:
                                                     weight_decay=self.weight_decay)
 
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
-        self.critic = R_Critic(args, self.share_obs_space, self.device)
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(),
                                                 lr=self.lr, eps=self.opti_eps,
                                                 weight_decay=self.weight_decay)
-        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
+
+        self.ex_critic = R_Critic(args, self.share_obs_space, self.device)
+        self.ex_critic_optimizer = torch.optim.Adam(self.ex_critic.parameters(),
+                                                 lr=self.critic_lr,
+                                                 eps=self.opti_eps,
+                                                 weight_decay=self.weight_decay)
+        
+        
+        self.in_critic = R_Critic(args, self.share_obs_space, self.device)
+        self.in_critic_optimizer = torch.optim.Adam(self.in_critic.parameters(),
                                                  lr=self.critic_lr,
                                                  eps=self.opti_eps,
                                                  weight_decay=self.weight_decay)
@@ -63,10 +71,11 @@ class R_MAPPOPolicy:
         update_linear_schedule(self.discri_optimizer, episode, episodes, self.lr)
         update_linear_schedule(self.local_discri_optimizer, episode, episodes, self.lr)
         update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
-        update_linear_schedule(self.critic_optimizer, episode, episodes, self.critic_lr)
+        update_linear_schedule(self.ex_critic_optimizer, episode, episodes, self.critic_lr)
+        update_linear_schedule(self.in_critic_optimizer, episode, episodes, self.critic_lr)
 
-    def get_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_critic, masks, available_actions=None,
-                    deterministic=False):
+    def get_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_ex_critic, rnn_states_in_critic, \
+                        masks, available_actions=None, deterministic=False):
         """
         Compute actions and value function predictions for the given inputs.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -87,10 +96,12 @@ class R_MAPPOPolicy:
         actions, action_log_probs, rnn_states_actor = \
             self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
 
-        values, rnn_states_critic = self.critic(cent_obs, rnn_states_critic, masks)
-        return values, actions, action_log_probs, rnn_states_actor, rnn_states_critic
+        ex_values, rnn_states_ex_critic = self.ex_critic(cent_obs, rnn_states_ex_critic, masks)
+        in_values, rnn_states_in_critic = self.in_critic(cent_obs, rnn_states_in_critic, masks)
 
-    def get_values(self, cent_obs, rnn_states_critic, masks):
+        return ex_values, in_values, actions, action_log_probs, rnn_states_actor, rnn_states_ex_critic, rnn_states_in_critic
+
+    def get_values(self, cent_obs, rnn_states_ex_critic, rnn_states_in_critic, masks):
         """
         Get value function predictions.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -99,11 +110,13 @@ class R_MAPPOPolicy:
 
         :return values: (torch.Tensor) value function predictions.
         """
-        values, _ = self.critic(cent_obs, rnn_states_critic, masks)
-        return values
+        ex_values, _ = self.ex_critic(cent_obs, rnn_states_ex_critic, masks)
+        in_values, _ = self.in_critic(cent_obs, rnn_states_in_critic, masks)
 
-    def evaluate_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_critic, action, masks,
-                         available_actions=None, active_masks=None):
+        return ex_values, in_values
+
+    def evaluate_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_ex_critic, rnn_states_in_critic, \
+                            action, masks, available_actions=None, active_masks=None):
         """
         Get action logprobs / entropy and value function predictions for actor update.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -124,9 +137,10 @@ class R_MAPPOPolicy:
         action_log_probs, dist_entropy = \
             self.actor.evaluate_actions(obs, rnn_states_actor, action, masks, available_actions, active_masks)
 
-        values, _ = self.critic(cent_obs, rnn_states_critic, masks)
+        ex_values, _ = self.ex_critic(cent_obs, rnn_states_ex_critic, masks)
+        in_values, _ = self.in_critic(cent_obs, rnn_states_in_critic, masks)
 
-        return values, action_log_probs, dist_entropy
+        return ex_values, in_values, action_log_probs, dist_entropy
 
     def evaluate_z(self, cent_obs, rnn_states_z, masks, active_masks=None):
         """
