@@ -13,10 +13,7 @@ class R_MAPPO():
     :param policy: (R_MAPPO_Policy) policy to update.
     :param device: (torch.device) specifies the device to run on (cpu/gpu).
     """
-    def __init__(self,
-                 args,
-                 policy,
-                 device=torch.device("cpu")):
+    def __init__(self, args, policy, device=torch.device("cpu")):
 
         self.device = device
         self.tpdv = dict(dtype=torch.float32, device=device)
@@ -191,7 +188,7 @@ class R_MAPPO():
 
         # discriminator update
         z_log_probs, _ = self.policy.evaluate_z(
-            share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
+            share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch, isTrain=True)
 
         z_loss = -torch.mean(z_log_probs)
 
@@ -208,7 +205,7 @@ class R_MAPPO():
     
         # local discriminator update
         loc_z_log_probs, _ = self.policy.evaluate_local_z(
-            obs_batch, loc_rnn_states_z_batch, masks_batch, active_masks=active_masks_batch)
+            obs_batch, loc_rnn_states_z_batch, masks_batch, active_masks=active_masks_batch, isTrain=True)
         
         loc_z_loss = -torch.mean(loc_z_log_probs)
 
@@ -249,6 +246,9 @@ class R_MAPPO():
         """
         
         if self._use_popart or self._use_valuenorm:
+            # z_idx = np.argmax(buffer.obs[:-1,:,:,:self.max_z], -1)
+            # z_idxs = np.expand_dims(z_idx, -1)
+            # alpha = self.policy.alpha_model.get_coeff().cpu().numpy()[z_idxs]
             total_return = buffer.ex_returns[:-1] + buffer.in_returns[:-1]
             total_preds = self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1]) \
                             + self.in_value_normalizer.denormalize(buffer.in_value_preds[:-1])

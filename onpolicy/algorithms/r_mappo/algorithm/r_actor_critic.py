@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 from onpolicy.algorithms.utils.util import init, check
 from onpolicy.algorithms.utils.cnn import CNNBase
 from onpolicy.algorithms.utils.mlp import MLPBase
@@ -7,6 +8,27 @@ from onpolicy.algorithms.utils.rnn import RNNLayer
 from onpolicy.algorithms.utils.act import ACTLayer
 from onpolicy.algorithms.utils.popart import PopArt
 from onpolicy.utils.util import get_shape_from_obs_space
+
+class AlphaModel(nn.Module):
+    def __init__(self, args, coeff=None, device=torch.device("cpu")):
+        super(AlphaModel, self).__init__()
+        self.tpdv = dict(dtype=torch.float32, device=device)
+        self.max_z = args.max_z
+        if coeff is None:
+            print('create auto alpha, start from 0')
+            self.exp_coeff = nn.Parameter(torch.ones(self.max_z))
+        else:
+            coeff = max(coeff, 0)
+            self.exp_coeff = torch.exp(torch.tensor([coeff]))
+
+    def get_coeff_loss(self, target_value, value_now):
+        value_diff = max(target_value - np.mean(value_now), 0.)
+        coeff_loss = torch.mean(-check(self.exp_coeff).to(**self.tpdv) * value_diff)
+        return coeff_loss
+
+    def get_coeff(self):
+        with torch.no_grad():
+            return torch.log(self.exp_coeff)
 
 class R_Discriminator(nn.Module):
     """

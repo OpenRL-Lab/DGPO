@@ -34,6 +34,7 @@ class SharedReplayBuffer(object):
         self._use_popart = args.use_popart
         self._use_valuenorm = args.use_valuenorm
         self._use_proper_time_limits = args.use_proper_time_limits
+        self.num_agents = args.num_agents
 
         # shapes
         obs_shape = get_shape_from_obs_space(obs_space)
@@ -71,7 +72,7 @@ class SharedReplayBuffer(object):
         self.action_log_probs = np.zeros(a_shape, dtype=np.float32)
 
         # data : discriminator
-        d_shape = (self.episode_length+1, self.n_rollout_threads, num_agents, act_shape)
+        d_shape = (self.episode_length, self.n_rollout_threads, num_agents, act_shape)
         self.z_log_probs = np.zeros(d_shape, dtype=np.float32)
         self.loc_z_log_probs = np.zeros(d_shape, dtype=np.float32)
 
@@ -106,8 +107,8 @@ class SharedReplayBuffer(object):
             'loc_rnn_states_z':[self.loc_rnn_states_z,1],
             'actions':[self.actions,0],
             'action_log_probs':[self.action_log_probs,0],
-            'z_log_probs':[self.z_log_probs,1],
-            'loc_z_log_probs':[self.loc_z_log_probs,1],
+            'z_log_probs':[self.z_log_probs,0],
+            'loc_z_log_probs':[self.loc_z_log_probs,0],
             'ex_value_preds':[self.ex_value_preds,0],
             'in_value_preds':[self.in_value_preds,0],
             'rewards':[self.rewards,0],
@@ -154,10 +155,12 @@ class SharedReplayBuffer(object):
         # intrinsic return 
         gae = 0
         self.in_value_preds[-1] = next_in_value
-        for step in reversed(range(self.z_log_probs[:-1].shape[0])):
+        for step in reversed(range(self.z_log_probs.shape[0])):
+            loc_r = np.mean(self.loc_z_log_probs[step], axis=1, keepdims=True).repeat(self.num_agents,1)
+            rewards = self.z_log_probs[step]*2 - loc_r
             value_tp1 = in_value_normalizer.denormalize(self.in_value_preds[step+1])
             value_t = in_value_normalizer.denormalize(self.in_value_preds[step])
-            delta = self.z_log_probs[step] + self.gamma * value_tp1 * self.masks[step+1] - value_t
+            delta = rewards + self.gamma * value_tp1 * self.masks[step+1] - value_t
             gae = delta + self.gamma * self.gae_lambda * self.masks[step+1] * gae
             self.in_returns[step] = gae + value_t
   

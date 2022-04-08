@@ -108,12 +108,14 @@ class MPERunner(Runner):
             z_log_prob, rnn_state_z = self.trainer[agent_id].policy.evaluate_z(
                 self.buffer[agent_id].share_obs[step+1],
                 self.buffer[agent_id].rnn_states_z[step],
-                self.buffer[agent_id].masks[step+1]
+                self.buffer[agent_id].masks[step+1],
+                isTrain=False,
             )
             loc_z_log_prob, loc_rnn_state_z = self.trainer[agent_id].policy.evaluate_local_z(
                 self.buffer[agent_id].obs[step+1],
                 self.buffer[agent_id].loc_rnn_states_z[step],
-                self.buffer[agent_id].masks[step+1]
+                self.buffer[agent_id].masks[step+1],
+                isTrain=False,
             )
             # [self.envs, agents, dim]
             z_log_probs = _t2n(z_log_prob)

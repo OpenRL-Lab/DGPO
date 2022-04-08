@@ -2,7 +2,7 @@ import torch
 import copy
 import numpy as np
 
-from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic, R_Discriminator
+from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic, R_Discriminator, AlphaModel
 from onpolicy.utils.util import update_linear_schedule
 
 
@@ -33,6 +33,12 @@ class R_MAPPOPolicy:
         self.z_space = z_space
         self.z_obs_space = z_obs_space
         self.z_local_obs_space = z_local_obs_space
+
+        # self.alpha_model = AlphaModel(args) 
+        # self.alpha_optimizer = torch.optim.Adam(self.alpha_model.parameters(),
+        #                                             lr=self.lr, eps=self.opti_eps,
+        #                                             weight_decay=self.weight_decay)
+        
 
         self.discriminator = R_Discriminator(args, self.z_obs_space, self.z_space, self.device) 
         self.discri_optimizer = torch.optim.Adam(self.discriminator.parameters(),
@@ -73,6 +79,7 @@ class R_MAPPOPolicy:
         update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
         update_linear_schedule(self.ex_critic_optimizer, episode, episodes, self.critic_lr)
         update_linear_schedule(self.in_critic_optimizer, episode, episodes, self.critic_lr)
+        update_linear_schedule(self.alpha_optimizer, episode, episodes, self.critic_lr)
 
     def get_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_ex_critic, rnn_states_in_critic, \
                         masks, available_actions=None, deterministic=False):
@@ -115,6 +122,19 @@ class R_MAPPOPolicy:
 
         return ex_values, in_values
 
+    def get_ex_values(self, cent_obs, rnn_states_ex_critic, masks):
+        """
+        Get value function predictions.
+        :param cent_obs (np.ndarray): centralized input to the critic.
+        :param rnn_states_critic: (np.ndarray) if critic is RNN, RNN states for critic.
+        :param masks: (np.ndarray) denotes points at which RNN states should be reset.
+
+        :return values: (torch.Tensor) value function predictions.
+        """
+        ex_values, _ = self.ex_critic(cent_obs, rnn_states_ex_critic, masks)
+
+        return ex_values
+
     def evaluate_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_ex_critic, rnn_states_in_critic, \
                             action, masks, available_actions=None, active_masks=None):
         """
@@ -142,7 +162,7 @@ class R_MAPPOPolicy:
 
         return ex_values, in_values, action_log_probs, dist_entropy
 
-    def evaluate_z(self, cent_obs, rnn_states_z, masks, active_masks=None):
+    def evaluate_z(self, cent_obs, rnn_states_z, masks, active_masks=None, isTrain=True):
         """
         Get action logprobs / entropy and value function predictions for actor update.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -159,16 +179,24 @@ class R_MAPPOPolicy:
         :return action_log_probs: (torch.Tensor) log probabilities of the input actions.
         :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
         """
-        z_idx = np.argmax(cent_obs[:,:self.max_z], axis=1)
-        z_idx = np.expand_dims(z_idx, -1)
+        z_vec = cent_obs[:,:self.max_z]
+        z_idx = np.argmax(z_vec, axis=1)
+        z_idxs = np.expand_dims(z_idx, -1)
         cent_obs = cent_obs[:,self.max_z:]
 
+        if isTrain:
+            z_masks = None
+        else:
+            z_masks = np.ones([self.max_z, self.max_z])
+            z_masks = np.tril(z_masks)
+            z_masks = z_masks[z_idx]
+
         action_log_probs, rnn_states_z = \
-            self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_idx, masks, active_masks=active_masks)
+            self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_idxs, masks, available_actions=z_masks, active_masks=active_masks)
 
         return action_log_probs, rnn_states_z
 
-    def evaluate_local_z(self, obs, rnn_states_z, masks, available_actions=None, active_masks=None):
+    def evaluate_local_z(self, obs, rnn_states_z, masks, active_masks=None, isTrain=True):
         """
         Get action logprobs / entropy and value function predictions for actor update.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -186,11 +214,18 @@ class R_MAPPOPolicy:
         :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
         """
         z_idx = np.argmax(obs[:,:self.max_z], axis=1)
-        z_idx = np.expand_dims(z_idx, -1)
+        z_idxs = np.expand_dims(z_idx, -1)
         obs = obs[:,self.max_z:]
 
+        if isTrain:
+            z_masks = None
+        else:
+            z_masks = np.ones([self.max_z, self.max_z])
+            z_masks = np.tril(z_masks)
+            z_masks = z_masks[z_idx]
+
         action_log_probs, rnn_states_z = \
-            self.local_discri.evaluate_actions(obs, rnn_states_z, z_idx, masks, active_masks=active_masks)
+            self.local_discri.evaluate_actions(obs, rnn_states_z, z_idxs, masks, available_actions=z_masks, active_masks=active_masks)
 
         return action_log_probs, rnn_states_z
 
