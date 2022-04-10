@@ -16,6 +16,6 @@ do
     --num_landmarks ${num_landmarks} --seed ${seed} --n_training_threads 1 \
     --n_rollout_threads 2 --n_eval_rollout_threads 64 --episode_length 25 \
     --num_env_steps 20000000 --ppo_epoch 10 --use_ReLU \
-    --wandb_name "cwz" --user_name "cwz19" \
+    --wandb_name "cwz19" --user_name "cwz19" 
     --use_wandb
 done
