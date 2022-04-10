@@ -226,7 +226,7 @@ class R_MAPPO():
         self.policy.local_discri_optimizer.step()
 
         # alpha model update
-        target_value = self.ex_value_normalizer.running_mean_z0.detach()
+        target_value = self.ex_value_normalizer.get_z0_mean().detach()
         cur_value = self.ex_value_normalizer.denormalize(ex_value_preds_batch)
         alpha_loss = self.policy.alpha_model.get_coeff_loss(target_value, cur_value, z_idxs)
 

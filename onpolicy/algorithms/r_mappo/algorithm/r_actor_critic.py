@@ -20,18 +20,24 @@ class AlphaModel(nn.Module):
             raise NotImplementedError
 
     def get_coeff_loss(self, target_value, value_now, z_idxs):
+        self.exp_coeff.data.clamp_(1., 1e6)
         exp_coeff = check(self.exp_coeff).to(**self.tpdv)
         target_value = check(target_value).to(**self.tpdv)
         value_now = check(value_now).to(**self.tpdv)
-        coeff_loss = torch.mean(exp_coeff[z_idxs] * (value_now - target_value))
+        value_diff = value_now.detach() - target_value.detach()
+        masks = (check(z_idxs.copy()).to(**self.tpdv)!=0).detach()
+        coeff_loss = exp_coeff[z_idxs] * value_diff * masks
+        coeff_loss = coeff_loss.sum() / masks.sum()
         return coeff_loss
 
     def get_coeff(self):
-        self.exp_coeff.data.clamp_(1., 1e6)
-        with torch.no_grad():
-            coeff = torch.log(self.exp_coeff)
-            coeff.data[0] = 1.
-            return coeff
+        return torch.ones(self.max_z)
+        # self.exp_coeff.data.clamp_(1., 1e6)
+        # with torch.no_grad():
+        #     coeff = torch.log(self.exp_coeff)
+        #     for z in range(self.max_z):
+        #         coeff.data[z] = 1.
+        #     return coeff
 
 class R_Discriminator(nn.Module):
     """

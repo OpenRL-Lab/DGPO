@@ -143,6 +143,7 @@ class SharedReplayBuffer(object):
             self.available_actions[0] = self.available_actions[-1].copy()
 
     def compute_returns(self, next_ex_value, next_in_value, ex_value_normalizer=None, in_value_normalizer=None):
+        
         # extrinsic return 
         gae = 0
         self.ex_value_preds[-1] = next_ex_value
@@ -152,12 +153,13 @@ class SharedReplayBuffer(object):
             delta = self.rewards[step] + self.gamma * value_tp1 * self.masks[step + 1] - value_t
             gae = delta + self.gamma * self.gae_lambda * self.masks[step + 1] * gae
             self.ex_returns[step] = gae + value_t
+
         # intrinsic return 
         gae = 0
         self.in_value_preds[-1] = next_in_value
         for step in reversed(range(self.z_log_probs.shape[0])):
-            loc_r = np.mean(self.loc_z_log_probs[step], axis=1, keepdims=True).repeat(self.num_agents,1)
-            rewards = self.z_log_probs[step]*2 - loc_r
+            # loc_r = np.mean(self.loc_z_log_probs[step], axis=1, keepdims=True).repeat(self.num_agents,1)
+            rewards = self.z_log_probs[step] #*2 - loc_r
             value_tp1 = in_value_normalizer.denormalize(self.in_value_preds[step+1])
             value_t = in_value_normalizer.denormalize(self.in_value_preds[step])
             delta = rewards + self.gamma * value_tp1 * self.masks[step+1] - value_t

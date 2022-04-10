@@ -133,7 +133,6 @@ class MPERunner(Runner):
         rnn_states_z = np.array(np.split(_t2n(rnn_state_z), self.n_rollout_threads))
         loc_z_log_probs = np.array(np.split(_t2n(loc_z_log_prob), self.n_rollout_threads))
         loc_rnn_states_z = np.array(np.split(_t2n(loc_rnn_state_z), self.n_rollout_threads))
-        # loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
 
         return z_log_probs, loc_z_log_probs, rnn_states_z, loc_rnn_states_z
 
@@ -251,10 +250,10 @@ class MPERunner(Runner):
         all_frames = []
         for episode in range(self.max_z):
             self.envs.seed(seed=seed)
-            obs = envs.reset(episode%self.max_z)
+            obs = envs.reset(episode)
             if self.all_args.save_gifs:
                 image = envs.render('rgb_array')[0][0]
-                if episode==0:
+                if episode%2==0:
                     image[10:20,10:20] *= 0
                 all_frames.append(image)
             else:

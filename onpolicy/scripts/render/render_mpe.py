@@ -20,7 +20,7 @@ def make_render_env(all_args):
         def init_env():
             if all_args.env_name == "MPE":
                 env = MPEEnv(all_args)
-                env = VMAPDWrapper(env, all_args.max_z)
+                env = VMAPDWrapper(env, all_args.max_z, rank%all_args.max_z)
             else:
                 print("Can not support the " +
                       all_args.env_name + "environment.")
