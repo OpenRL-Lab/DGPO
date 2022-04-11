@@ -4,6 +4,9 @@ import torch
 from onpolicy.runner.shared.base_runner import Runner
 import wandb
 import imageio
+import cv2
+import matplotlib
+import matplotlib.pyplot as plt
 
 def _t2n(x):
     return x.detach().cpu().numpy()
@@ -245,44 +248,41 @@ class MPERunner(Runner):
     @torch.no_grad()
     def render(self):
         """Visualize the env."""
+
         envs = self.envs
-        seed = 1
         all_frames = []
-        for episode in range(self.max_z):
-            self.envs.seed(seed=seed)
-            obs = envs.reset(episode)
+        all_traj = []
+
+        for z in range(self.max_z):
+
+            self.envs.seed(seed=self.seed)
+            obs = envs.reset(z)
+
             if self.all_args.save_gifs:
                 image = envs.render('rgb_array')[0][0]
-                if episode%2==0:
-                    image[10:20,10:20] *= 0
+                cv2.putText(image, str(z), (5, 25), cv2.FONT_HERSHEY_COMPLEX, 1.0, (0,0,0), 3)
                 all_frames.append(image)
             else:
                 envs.render('human')
 
             rnn_states = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
             masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-            
             episode_rewards = []
+            z_traj = []
             
-            for step in range(self.episode_length):
-                calc_start = time.time()
+            for _ in range(self.episode_length):
 
                 self.trainer.prep_rollout()
-                action, rnn_states = self.trainer.policy.act(np.concatenate(obs),
-                                                    np.concatenate(rnn_states),
-                                                    np.concatenate(masks),
-                                                    deterministic=True)
+                action, rnn_states = self.trainer.policy.act(
+                    np.concatenate(obs),
+                    np.concatenate(rnn_states),
+                    np.concatenate(masks),
+                    deterministic=True
+                )
                 actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
                 rnn_states = np.array(np.split(_t2n(rnn_states), self.n_rollout_threads))
 
-                if envs.action_space[0].__class__.__name__ == 'MultiDiscrete':
-                    for i in range(envs.action_space[0].shape):
-                        uc_actions_env = np.eye(envs.action_space[0].high[i]+1)[actions[:, :, i]]
-                        if i == 0:
-                            actions_env = uc_actions_env
-                        else:
-                            actions_env = np.concatenate((actions_env, uc_actions_env), axis=2)
-                elif envs.action_space[0].__class__.__name__ == 'Discrete':
+                if envs.action_space[0].__class__.__name__ == 'Discrete':
                     actions_env = np.squeeze(np.eye(envs.action_space[0].n)[actions], 2)
                 else:
                     raise NotImplementedError
@@ -290,6 +290,7 @@ class MPERunner(Runner):
                 # Obser reward and next obs
                 obs, rewards, dones, infos = envs.step(actions_env)
                 episode_rewards.append(rewards)
+                z_traj.append(obs[0,:,self.max_z+2:self.max_z+4])
 
                 rnn_states[dones == True] = np.zeros(((dones == True).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
                 masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
@@ -297,17 +298,34 @@ class MPERunner(Runner):
 
                 if self.all_args.save_gifs:
                     image = envs.render('rgb_array')[0][0]
-                    if episode==0:
-                        image[10:20,10:20] *= 0
+                    cv2.putText(image, str(z), (5, 25), cv2.FONT_HERSHEY_COMPLEX, 1.0, (0,0,0), 3)
                     all_frames.append(image)
-                    calc_end = time.time()
-                    elapsed = calc_end - calc_start
-                    if elapsed < self.all_args.ifi:
-                        time.sleep(self.all_args.ifi - elapsed)
                 else:
                     envs.render('human')
 
-            print("average episode rewards is: " + str(np.mean(np.sum(np.array(episode_rewards), axis=0))))
+            avg_rewards = np.mean(np.sum(np.array(episode_rewards), axis=0))
+            print("average episode rewards is: " + str(avg_rewards))
+            all_traj.append(z_traj)
 
         if self.all_args.save_gifs:
+            # save gif
             imageio.mimsave(str(self.gif_dir) + '/render.gif', all_frames, duration=self.all_args.ifi)
+            # save heat map
+            all_traj = np.array(all_traj).reshape([self.max_z, -1])
+            dis_matrix = np.expand_dims(all_traj,0) - np.expand_dims(all_traj,1)
+            dis_matrix = np.mean(dis_matrix**2, -1)
+
+            fig, ax = plt.subplots()
+            im = ax.imshow(dis_matrix)
+
+            # Loop over data dimensions and create text annotations.
+            for i in range(self.max_z):
+                for j in range(self.max_z):
+                    ax.text(j, i, "{:.4f}".format(dis_matrix[i, j]), 
+                                ha="center", va="center", color="w")
+
+            ax.set_title("distance_matrix")
+            fig.tight_layout()
+            plt.savefig(str(self.gif_dir) + "/distance_matrix.png")
+            plt.close()
+

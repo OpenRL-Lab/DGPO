@@ -41,6 +41,7 @@ class Runner(object):
         self.use_render = self.all_args.use_render
         self.recurrent_N = self.all_args.recurrent_N
         self.max_z = self.all_args.max_z
+        self.seed = self.all_args.seed
 
         # interval
         self.save_interval = self.all_args.save_interval
