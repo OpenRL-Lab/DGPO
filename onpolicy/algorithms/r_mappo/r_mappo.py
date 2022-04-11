@@ -272,10 +272,12 @@ class R_MAPPO():
             z_idx = np.argmax(buffer.obs[:-1,:,:,:self.max_z], -1)
             z_idxs = np.expand_dims(z_idx, -1)
             alpha = self.policy.alpha_model.get_coeff().cpu().numpy()
-            total_return = alpha[z_idxs] * buffer.ex_returns[:-1] + buffer.in_returns[:-1]
-            total_preds = alpha[z_idxs] * self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1]) \
+            alpha_list = 1. * (z_idxs==0) + alpha * (z_idxs!=0)
+            total_return = alpha_list * buffer.ex_returns[:-1] + buffer.in_returns[:-1]
+            total_preds = alpha_list * self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1]) \
                             + self.in_value_normalizer.denormalize(buffer.in_value_preds[:-1])
             advantages = total_return - total_preds
+            # advantages = buffer.ex_returns[:-1] - self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1])
         else:
             total_return = buffer.ex_returns[:-1] + buffer.in_returns[:-1]
             total_preds = buffer.ex_value_preds[:-1] + buffer.in_value_preds[:-1]
@@ -287,7 +289,7 @@ class R_MAPPO():
         std_advantages = np.nanstd(advantages_copy)
         advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
         
-        train_info = dict()
+        train_info = {'alpha':alpha}
 
         for _ in range(self.ppo_epoch):
 
@@ -312,10 +314,6 @@ class R_MAPPO():
 
         for k in train_info.keys():
             train_info[k] /= num_updates
-        
-        alpha = self.policy.alpha_model.get_coeff()
-        for z in range(self.max_z):
-            train_info['alpha_{}'.format(z)] = alpha[z]
  
         return train_info
 

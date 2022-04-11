@@ -2,7 +2,7 @@ import torch
 import copy
 import numpy as np
 
-from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic, R_Discriminator, AlphaModel
+from onpolicy.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_ex_Critic, R_in_Critic, R_Discriminator, AlphaModel
 from onpolicy.utils.util import update_linear_schedule
 
 
@@ -55,14 +55,14 @@ class R_MAPPOPolicy:
                                                 lr=self.lr, eps=self.opti_eps,
                                                 weight_decay=self.weight_decay)
 
-        self.ex_critic = R_Critic(args, self.share_obs_space, self.device)
+        self.ex_critic = R_ex_Critic(args, self.share_obs_space, self.device)
         self.ex_critic_optimizer = torch.optim.Adam(self.ex_critic.parameters(),
                                                  lr=self.critic_lr,
                                                  eps=self.opti_eps,
                                                  weight_decay=self.weight_decay)
         
         
-        self.in_critic = R_Critic(args, self.share_obs_space, self.device)
+        self.in_critic = R_in_Critic(args, self.share_obs_space, self.device)
         self.in_critic_optimizer = torch.optim.Adam(self.in_critic.parameters(),
                                                  lr=self.critic_lr,
                                                  eps=self.opti_eps,
