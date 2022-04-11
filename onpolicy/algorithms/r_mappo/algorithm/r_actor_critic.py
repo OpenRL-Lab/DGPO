@@ -31,12 +31,11 @@ class AlphaModel(nn.Module):
         return coeff_loss
 
     def get_coeff(self):
-        # return torch.ones(self.max_z)
-        self.exp_coeff.data.clamp_(1., 1e6)
-        with torch.no_grad():
-            coeff = torch.log(self.exp_coeff)
-            # coeff.data[0] = 1.
-            return coeff
+        return torch.ones(1)
+        # self.exp_coeff.data.clamp_(1., 1e6)
+        # with torch.no_grad():
+        #     coeff = torch.log(self.exp_coeff)
+        #     return coeff
 
 class R_Discriminator(nn.Module):
     """

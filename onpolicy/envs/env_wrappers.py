@@ -137,6 +137,7 @@ class ShareVecEnv(ABC):
         return self.viewer
 
 
+
 def worker(remote, parent_remote, env_fn_wrapper):
     parent_remote.close()
     env = env_fn_wrapper.x()
@@ -152,6 +153,8 @@ def worker(remote, parent_remote, env_fn_wrapper):
                     ob = env.reset()
 
             remote.send((ob, reward, done, info))
+        elif cmd == 'seed':
+            env.seed(data)
         elif cmd == 'reset':
             ob = env.reset(data)
             remote.send((ob))
@@ -305,6 +308,10 @@ class SubprocVecEnv(ShareVecEnv):
         if mode == "rgb_array":   
             frame = [remote.recv() for remote in self.remotes]
             return np.stack(frame) 
+
+    def seed(self, seed_num):
+        for remote, action in zip(self.remotes, seed_num):
+            remote.send(('seed', seed_num))
 
 
 def shareworker(remote, parent_remote, env_fn_wrapper):

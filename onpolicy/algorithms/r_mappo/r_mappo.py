@@ -289,7 +289,7 @@ class R_MAPPO():
         std_advantages = np.nanstd(advantages_copy)
         advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
         
-        train_info = {'alpha':alpha}
+        train_info = {}
 
         for _ in range(self.ppo_epoch):
 
@@ -314,6 +314,7 @@ class R_MAPPO():
 
         for k in train_info.keys():
             train_info[k] /= num_updates
+        train_info['alpha'] = alpha
  
         return train_info
 
@@ -323,6 +324,7 @@ class R_MAPPO():
         self.policy.in_critic.train()
         self.policy.discriminator.train()
         self.policy.local_discri.train()
+        self.policy.alpha_model.train()
 
     def prep_rollout(self):
         self.policy.actor.eval()
@@ -330,3 +332,4 @@ class R_MAPPO():
         self.policy.in_critic.train()
         self.policy.discriminator.eval()
         self.policy.local_discri.eval()
+        self.policy.alpha_model.eval()
