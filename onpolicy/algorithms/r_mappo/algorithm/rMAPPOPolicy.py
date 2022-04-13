@@ -36,7 +36,7 @@ class R_MAPPOPolicy:
 
         self.alpha_model = AlphaModel(args) 
         self.alpha_optimizer = torch.optim.Adam(self.alpha_model.parameters(),
-                                                    lr=1e-4, eps=self.opti_eps,
+                                                    lr=1e-3, eps=self.opti_eps,
                                                     weight_decay=self.weight_decay)
         
 

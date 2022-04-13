@@ -38,6 +38,8 @@ class Scenario(BaseScenario):
         # given initial states
         coor_agent = np.array([[1, 0], [-0.5, 0.8660254038], [-0.5, -0.8660254038]])
         coor_landm = np.array([[0.5, 0.8660254038], [0.5, -0.8660254038], [-1, 0]])
+        coor_agent += (np.random.random([3,2])-.5)*1e-4
+        coor_landm += (np.random.random([3,2])-.5)*1e-4
         # coor_landm = np.array([[1, 0], [-0.5, 0.8660254038], [-0.5, -0.8660254038]])
         # coor_agent = np.array([[0.5, 0.8660254038], [0.5, -0.8660254038], [-1, 0]])
         for i, agent in enumerate(world.agents):

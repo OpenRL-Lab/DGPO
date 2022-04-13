@@ -14,6 +14,8 @@ def _t2n(x):
 class MPERunner(Runner):
     """Runner class to perform training, evaluation. and data collection for the MPEs. See parent class for details."""
     def __init__(self, config):
+        self.running_mean_dis = 0.
+        self.running_mean_cnt = 0
         super(MPERunner, self).__init__(config)
 
     def run(self):
@@ -36,8 +38,8 @@ class MPERunner(Runner):
                 # Obser reward and next obs
                 obs, rewards, dones, infos = self.envs.step(actions_env)
 
-                # # soft learning
-                # rewards -= action_log_probs
+                # soft learning
+                rewards -= action_log_probs
 
                 # insert data into buffer
                 data = dict()
@@ -207,7 +209,8 @@ class MPERunner(Runner):
         eval_episode_rewards = []
         eval_all_obs = []
 
-        seed_num = np.arange(self.n_eval_rollout_threads//self.max_z)
+        seed_cnt = self.n_eval_rollout_threads//self.max_z
+        seed_num = np.arange(seed_cnt*self.running_mean_cnt,seed_cnt*(self.running_mean_cnt+1))
         seed_num = np.expand_dims(seed_num, 1)
         seed_num = seed_num.repeat(self.max_z, 1)
         seed_num = seed_num.flatten()
@@ -256,6 +259,9 @@ class MPERunner(Runner):
         eval_dis_mat = np.mean(eval_dis_mat**2, -1)
         print("eval distance matrix: " + str(eval_dis_mat.mean()))
         eval_env_infos['eval_pos_distance'] = eval_dis_mat.mean()
+        self.running_mean_cnt += 1
+        self.running_mean_dis += eval_dis_mat.mean()
+        eval_env_infos['eval_mean_dis'] = self.running_mean_dis / self.running_mean_cnt
         self.log_env(eval_env_infos, total_num_steps)
 
     @torch.no_grad()
