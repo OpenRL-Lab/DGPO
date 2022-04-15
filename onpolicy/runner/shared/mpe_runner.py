@@ -38,8 +38,8 @@ class MPERunner(Runner):
                 # Obser reward and next obs
                 obs, rewards, dones, infos = self.envs.step(actions_env)
 
-                # soft learning
-                rewards -= action_log_probs
+                # # soft learning
+                # rewards -= action_log_probs
 
                 # insert data into buffer
                 data = dict()
@@ -113,7 +113,7 @@ class MPERunner(Runner):
     def warmup(self):
         
         obs = self.envs.reset()
-        share_obs = self.obs2shareobs(obs)
+        share_obs = self.obs2shareobs(obs.copy())
         
         self.buffer.obs[0] = obs.copy()
         self.buffer.share_obs[0] = share_obs.copy()

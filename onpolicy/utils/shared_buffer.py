@@ -157,6 +157,8 @@ class SharedReplayBuffer(object):
         # intrinsic return 
         gae = 0
         self.in_value_preds[-1] = next_in_value
+        print("r", self.z_log_probs[:,0,0,0]) #self.episode_length, self.n_rollout_threads, num_agents, 1
+        print("z", self.share_obs[:,0,0,0]) #self.episode_length+1, self.n_rollout_threads, num_agents, *share_obs_shape
         for step in reversed(range(self.z_log_probs.shape[0])):
             # loc_r = np.mean(self.loc_z_log_probs[step], axis=1, keepdims=True).repeat(self.num_agents,1)
             rewards = self.z_log_probs[step] #*2 - loc_r

@@ -36,7 +36,7 @@ class R_MAPPOPolicy:
 
         self.alpha_model = AlphaModel(args) 
         self.alpha_optimizer = torch.optim.Adam(self.alpha_model.parameters(),
-                                                    lr=1e-3, eps=self.opti_eps,
+                                                    lr=1e-4, eps=self.opti_eps,
                                                     weight_decay=self.weight_decay)
         
 
@@ -103,7 +103,7 @@ class R_MAPPOPolicy:
         actions, action_log_probs, rnn_states_actor = \
             self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
 
-        ex_values, rnn_states_ex_critic = self.ex_critic(cent_obs, rnn_states_ex_critic, masks)
+        ex_values, rnn_states_ex_critic = self.ex_critic(cent_obs.copy(), rnn_states_ex_critic, masks)
         in_values, rnn_states_in_critic = self.in_critic(cent_obs, rnn_states_in_critic, masks)
 
         return ex_values, in_values, actions, action_log_probs, rnn_states_actor, rnn_states_ex_critic, rnn_states_in_critic
@@ -117,7 +117,7 @@ class R_MAPPOPolicy:
 
         :return values: (torch.Tensor) value function predictions.
         """
-        ex_values, _ = self.ex_critic(cent_obs, rnn_states_ex_critic, masks)
+        ex_values, _ = self.ex_critic(cent_obs.copy(), rnn_states_ex_critic, masks)
         in_values, _ = self.in_critic(cent_obs, rnn_states_in_critic, masks)
 
         return ex_values, in_values
@@ -157,7 +157,7 @@ class R_MAPPOPolicy:
         action_log_probs, dist_entropy = \
             self.actor.evaluate_actions(obs, rnn_states_actor, action, masks, available_actions, active_masks)
 
-        ex_values, _ = self.ex_critic(cent_obs, rnn_states_ex_critic, masks)
+        ex_values, _ = self.ex_critic(cent_obs.copy(), rnn_states_ex_critic, masks)
         in_values, _ = self.in_critic(cent_obs, rnn_states_in_critic, masks)
 
         return ex_values, in_values, action_log_probs, dist_entropy
@@ -184,13 +184,12 @@ class R_MAPPOPolicy:
         z_idxs = np.expand_dims(z_idx, -1)
         cent_obs = cent_obs[:,self.max_z:]
 
-        z_masks = None
-        # if isTrain:
-        #     z_masks = None
-        # else:
-        #     z_masks = np.ones([self.max_z, self.max_z])
-        #     z_masks = np.tril(z_masks)
-        #     z_masks = z_masks[z_idx]
+        if isTrain:
+            z_masks = None
+        else:
+            z_masks = np.ones([self.max_z, self.max_z])
+            z_masks = np.tril(z_masks)
+            z_masks = z_masks[z_idx]
 
         action_log_probs, rnn_states_z = \
             self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_idxs, masks, available_actions=z_masks, active_masks=active_masks)
@@ -218,13 +217,12 @@ class R_MAPPOPolicy:
         z_idxs = np.expand_dims(z_idx, -1)
         obs = obs[:,self.max_z:]
 
-        z_masks = None
-        # if isTrain:
-        #     z_masks = None
-        # else:
-        #     z_masks = np.ones([self.max_z, self.max_z])
-        #     z_masks = np.tril(z_masks)
-        #     z_masks = z_masks[z_idx]
+        if isTrain:
+            z_masks = None
+        else:
+            z_masks = np.ones([self.max_z, self.max_z])
+            z_masks = np.tril(z_masks)
+            z_masks = z_masks[z_idx]
 
         action_log_probs, rnn_states_z = \
             self.local_discri.evaluate_actions(obs, rnn_states_z, z_idxs, masks, available_actions=z_masks, active_masks=active_masks)
