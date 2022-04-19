@@ -145,15 +145,19 @@ class Runner(object):
         """Save policy's actor and critic networks."""
         policy_actor = self.trainer.policy.actor
         torch.save(policy_actor.state_dict(), str(self.save_dir) + "/actor.pt")
+        policy_critic = self.trainer.policy.in_critic
+        torch.save(policy_critic.state_dict(), str(self.save_dir) + "/in_critic.pt")
         policy_critic = self.trainer.policy.ex_critic
-        torch.save(policy_critic.state_dict(), str(self.save_dir) + "/critic.pt")
+        torch.save(policy_critic.state_dict(), str(self.save_dir) + "/ex_critic.pt")
 
     def restore(self):
         """Restore policy's networks from a saved model."""
         policy_actor_state_dict = torch.load(str(self.model_dir) + '/actor.pt')
         self.policy.actor.load_state_dict(policy_actor_state_dict)
         if not self.all_args.use_render:
-            policy_critic_state_dict = torch.load(str(self.model_dir) + '/critic.pt')
+            policy_critic_state_dict = torch.load(str(self.model_dir) + '/in_critic.pt')
+            self.policy.in_critic.load_state_dict(policy_critic_state_dict)
+            policy_critic_state_dict = torch.load(str(self.model_dir) + '/ex_critic.pt')
             self.policy.ex_critic.load_state_dict(policy_critic_state_dict)
  
     def log_train(self, train_infos, total_num_steps):

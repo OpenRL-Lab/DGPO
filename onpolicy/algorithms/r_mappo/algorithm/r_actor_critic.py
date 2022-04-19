@@ -15,27 +15,35 @@ class AlphaModel(nn.Module):
         self.tpdv = dict(dtype=torch.float32, device=device)
         self.max_z = args.max_z
         self.exp_coeff = nn.Parameter(torch.ones(1))
+        self.alpha = 0.
 
     def get_coeff_loss(self, target_value, value_now, z_idxs):
-        self.exp_coeff.data.clamp_(1., 1e6)
+        # self.exp_coeff.data.clamp_(1., 1e6)
 
+        # exp_coeff = check(self.exp_coeff).to(**self.tpdv)
+        # target_value = check(target_value).to(**self.tpdv)
+        # value_now = check(value_now).to(**self.tpdv)
+        # masks = check(z_idxs.copy()).to(**self.tpdv) != 0
+
+        # value_diff = value_now - target_value
+        # coeff_loss = exp_coeff * value_diff.detach() * masks.detach()
+        # coeff_loss = coeff_loss.sum() / masks.sum()
+
+        self.exp_coeff.data.clamp_(1., 1e6)
         exp_coeff = check(self.exp_coeff).to(**self.tpdv)
         target_value = check(target_value).to(**self.tpdv)
         value_now = check(value_now).to(**self.tpdv)
-        masks = check(z_idxs.copy()).to(**self.tpdv) != 0
-
         value_diff = value_now - target_value
-        coeff_loss = exp_coeff * value_diff.detach() * masks.detach()
-        coeff_loss = coeff_loss.sum() / masks.sum()
+        coeff_loss = exp_coeff * value_diff.detach()
 
-        return coeff_loss
+        return coeff_loss.mean()
 
     def get_coeff(self):
-        # return torch.ones(1)
-        self.exp_coeff.data.clamp_(1., 1e6)
-        with torch.no_grad():
-            coeff = torch.log(self.exp_coeff)
-            return coeff
+        return torch.ones(1)
+        # self.exp_coeff.data.clamp_(1., 1e6)
+        # with torch.no_grad():
+        #     coeff = torch.log(self.exp_coeff)
+        #     return coeff
 
 class R_Discriminator(nn.Module):
     """
@@ -63,8 +71,8 @@ class R_Discriminator(nn.Module):
         base = CNNBase if len(obs_shape) == 3 else MLPBase
         self.base = base(args, obs_shape)
 
-        if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-            self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
+        # if self._use_naive_recurrent_policy or self._use_recurrent_policy:
+        #     self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
 
         self.act = ACTLayer(action_space, self.hidden_size, self._use_orthogonal, self._gain)
 
@@ -92,8 +100,8 @@ class R_Discriminator(nn.Module):
 
         actor_features = self.base(obs)
 
-        if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-            actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
+        # if self._use_naive_recurrent_policy or self._use_recurrent_policy:
+        #     actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
 
         actions, action_log_probs = self.act(actor_features, available_actions, deterministic)
 
@@ -124,8 +132,8 @@ class R_Discriminator(nn.Module):
             active_masks = check(active_masks).to(**self.tpdv)
         actor_features = self.base(obs)
 
-        if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-            actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
+        # if self._use_naive_recurrent_policy or self._use_recurrent_policy:
+        #     actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
 
         active_masks = active_masks if self._use_policy_active_masks else None
         action_log_probs, dist_entropy = \
@@ -159,14 +167,17 @@ class R_Actor(nn.Module):
         # model 
         obs_shape = get_shape_from_obs_space(obs_space)
         obs_shape = (obs_shape[0]-self._max_z,)
+
         base = CNNBase if len(obs_shape) == 3 else MLPBase
         self.base = base(args, obs_shape)
-        self.z_base = MLPBase(args, (self._max_z,))
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
-
-        self.act = ACTLayer(action_space, self.hidden_size*2, self._use_orthogonal, self._gain)
+        
+        self.z_base = MLPBase(args, (self._max_z,))
+        self.base2 = MLPBase(args, (self.hidden_size*2,))
+        
+        self.act = ACTLayer(action_space, self.hidden_size, self._use_orthogonal, self._gain)
 
         self.to(device)
 
@@ -197,6 +208,7 @@ class R_Actor(nn.Module):
         
         z_features = self.z_base(obs[:,:self._max_z])
         actor_features = torch.cat([actor_features, z_features], -1)
+        actor_features = self.base2(actor_features)
 
         actions, action_log_probs = self.act(actor_features, available_actions, deterministic)
 
@@ -233,6 +245,7 @@ class R_Actor(nn.Module):
         
         z_features = self.z_base(obs[:,:self._max_z])
         actor_features = torch.cat([actor_features, z_features], -1)
+        actor_features = self.base2(actor_features)
 
         active_masks = active_masks if self._use_policy_active_masks else None
         action_log_probs, dist_entropy = \
@@ -267,19 +280,21 @@ class R_in_Critic(nn.Module):
         cent_obs_shape = get_shape_from_obs_space(cent_obs_space)
         cent_obs_shape = (cent_obs_shape[0]-self._max_z,)
         base = CNNBase if len(cent_obs_shape) == 3 else MLPBase
-        self.z_base = MLPBase(args, (self._max_z,))
         self.base = base(args, cent_obs_shape)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
+        
+        self.z_base = MLPBase(args, (self._max_z,))
+        self.base2 = MLPBase(args, (self.hidden_size*2,))
 
         def init_(m):
             return init(m, init_method, lambda x: nn.init.constant_(x, 0))
 
         if self._use_popart:
-            self.v_out = init_(PopArt(self.hidden_size*2, 1, device=device))
+            self.v_out = init_(PopArt(self.hidden_size, 1, device=device))
         else:
-            self.v_out = init_(nn.Linear(self.hidden_size*2, 1))
+            self.v_out = init_(nn.Linear(self.hidden_size, 1))
 
         self.to(device)
 
@@ -304,6 +319,7 @@ class R_in_Critic(nn.Module):
     
         z_features = self.z_base(cent_obs[:,:self._max_z])
         critic_features = torch.cat([critic_features, z_features], -1)
+        critic_features = self.base2(critic_features)
 
         values = self.v_out(critic_features)
 
@@ -340,6 +356,9 @@ class R_ex_Critic(nn.Module):
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
 
+        self.z_base = MLPBase(args, (self._max_z,))
+        self.base2 = MLPBase(args, (self.hidden_size,))
+
         def init_(m):
             return init(m, init_method, lambda x: nn.init.constant_(x, 0))
 
@@ -368,6 +387,8 @@ class R_ex_Critic(nn.Module):
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             critic_features, rnn_states = self.rnn(critic_features, rnn_states, masks)
+            
+        critic_features = self.base2(critic_features)
 
         values = self.v_out(critic_features)
 

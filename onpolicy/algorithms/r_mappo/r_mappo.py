@@ -3,8 +3,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 from onpolicy.utils.util import get_gard_norm, huber_loss, mse_loss
-from onpolicy.utils.valuenorm import ValueNorm
+from onpolicy.utils.valuenorm import ValueNorm, IdentityTrans
 from onpolicy.algorithms.utils.util import check
+import math
 
 class R_MAPPO():
     """
@@ -29,6 +30,7 @@ class R_MAPPO():
         self.huber_delta = args.huber_delta
         self.num_agents = args.num_agents
         self.max_z = args.max_z
+        self.gamma = args.gamma
 
         self._use_recurrent_policy = args.use_recurrent_policy
         self._use_naive_recurrent = args.use_naive_recurrent_policy
@@ -46,11 +48,13 @@ class R_MAPPO():
             self.ex_value_normalizer = self.policy.critic.v_out
             self.in_value_normalizer = self.policy.critic.v_out
         elif self._use_valuenorm:
-            self.ex_value_normalizer = ValueNorm(1, device = self.device)
-            self.in_value_normalizer = ValueNorm(1, device = self.device)
+            self.ex_value_normalizer = ValueNorm(args, 1, device = self.device)
+            self.in_value_normalizer = ValueNorm(args, 1, device = self.device)
         else:
             self.ex_value_normalizer = None
             self.in_value_normalizer = None
+
+        self.cnt = 0
 
     def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch, value_norm, z_idxs):
         """
@@ -104,6 +108,7 @@ class R_MAPPO():
         :return actor_grad_norm: (torch.Tensor) gradient norm from actor update.
         :return imp_weights: (torch.Tensor) importance sampling weights.
         """
+        self.cnt += 1
         share_obs_batch, obs_batch, \
         rnn_states_batch, rnn_states_z_batch, loc_rnn_states_z_batch, \
         rnn_states_ex_critic_batch, rnn_states_in_critic_batch, \
@@ -121,8 +126,7 @@ class R_MAPPO():
 
         # z_idxs
         z_vec = obs_batch[:,:self.max_z].copy()
-        z_idx = np.argmax(z_vec, axis=1)
-        z_idxs = np.expand_dims(z_idx, -1)
+        z_idxs = np.expand_dims(np.argmax(z_vec, -1), -1)
 
         # Reshape to do in a single forward pass for all steps
         ex_values, in_values, action_log_probs, dist_entropy = self.policy.evaluate_actions(share_obs_batch,
@@ -134,17 +138,22 @@ class R_MAPPO():
                                                                                             masks_batch, 
                                                                                             available_actions_batch,
                                                                                             active_masks_batch)
+                                                                                            
+        z_log_probs, _ = self.policy.evaluate_z(
+            share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch, isTrain=True)
+
         # actor update
         imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch)
 
         surr1 = imp_weights * adv_targ
         surr2 = torch.clamp(imp_weights, 1.-self.clip_param, 1.+self.clip_param) * adv_targ
+        L_clip = -torch.sum(torch.min(surr1, surr2), dim=-1, keepdim=True)
+        diver_mask = (z_log_probs.detach()>-math.log(self.max_z-.4))
+        target = L_clip * diver_mask
 
         if self._use_policy_active_masks:
-            target = -torch.sum(torch.min(surr1, surr2), dim=-1, keepdim=True)
             policy_loss = (target * active_masks_batch).sum() / active_masks_batch.sum()
         else:
-            target = -torch.sum(torch.min(surr1, surr2), dim=-1, keepdim=True)
             policy_loss = target.mean()
 
         self.policy.actor_optimizer.zero_grad()
@@ -195,8 +204,9 @@ class R_MAPPO():
         z_log_probs, _ = self.policy.evaluate_z(
             share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch, isTrain=True)
 
-        z_loss = -torch.mean(z_log_probs)
+        target = z_log_probs 
 
+        z_loss = -torch.mean(z_log_probs)
         self.policy.discri_optimizer.zero_grad()
 
         z_loss.backward()
@@ -208,26 +218,28 @@ class R_MAPPO():
 
         self.policy.discri_optimizer.step()
     
-        # local discriminator update
-        loc_z_log_probs, _ = self.policy.evaluate_local_z(
-            obs_batch, loc_rnn_states_z_batch, masks_batch, active_masks=active_masks_batch, isTrain=True)
+        # # local discriminator update
+        # loc_z_log_probs, _ = self.policy.evaluate_local_z(
+        #     obs_batch, loc_rnn_states_z_batch, masks_batch, active_masks=active_masks_batch, isTrain=True)
         
-        loc_z_loss = -torch.mean(loc_z_log_probs)
+        # loc_z_loss = -torch.mean(loc_z_log_probs)
 
-        self.policy.local_discri_optimizer.zero_grad()
+        # self.policy.local_discri_optimizer.zero_grad()
 
-        loc_z_loss.backward()
+        # loc_z_loss.backward()
 
-        if self._use_max_grad_norm:
-            loc_z_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
-        else:
-            loc_z_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
+        # if self._use_max_grad_norm:
+        #     loc_z_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
+        # else:
+        #     loc_z_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
             
-        self.policy.local_discri_optimizer.step()
+        # self.policy.local_discri_optimizer.step()
 
         # alpha model update
-        target_value = self.ex_value_normalizer.get_z0_mean().detach()
-        cur_value = self.ex_value_normalizer.denormalize(ex_value_preds_batch)
+        # target_value = self.ex_value_normalizer.get_z0_mean().detach()
+        # cur_value = self.ex_value_normalizer.denormalize(ex_value_preds_batch)
+        target_value = torch.zeros([1])
+        cur_value = self.ex_value_normalizer.running_mean_var()[0].detach()
         alpha_loss = self.policy.alpha_model.get_coeff_loss(target_value, cur_value, z_idxs)
 
         self.policy.alpha_optimizer.zero_grad()
@@ -247,15 +259,16 @@ class R_MAPPO():
         train_info['policy_loss'] = policy_loss
         train_info['dist_entropy'] = dist_entropy
         train_info['z_loss'] = z_loss
-        train_info['loc_z_loss'] = loc_z_loss
+        # train_info['loc_z_loss'] = loc_z_loss
         train_info['alpha_loss'] = alpha_loss
         train_info['imp_weight'] = imp_weights.mean()
-        train_info['ex_critic_grad_norm'] = ex_critic_grad_norm
-        train_info['in_critic_grad_norm'] = in_critic_grad_norm
-        train_info['actor_grad_norm'] = actor_grad_norm
-        train_info['loc_z_grad_norm'] = loc_z_grad_norm
-        train_info['z_grad_norm'] = z_grad_norm
-        train_info['alpha_grad_norm'] = alpha_grad_norm
+        train_info['diver_mask'] = (diver_mask*1.).mean()
+        # train_info['ex_critic_grad_norm'] = ex_critic_grad_norm
+        # train_info['in_critic_grad_norm'] = in_critic_grad_norm
+        # train_info['actor_grad_norm'] = actor_grad_norm
+        # train_info['loc_z_grad_norm'] = loc_z_grad_norm
+        # train_info['z_grad_norm'] = z_grad_norm
+        # train_info['alpha_grad_norm'] = alpha_grad_norm
 
         return train_info
 
@@ -269,21 +282,24 @@ class R_MAPPO():
         """
         
         if self._use_popart or self._use_valuenorm:
-            z_idx = np.argmax(buffer.obs[:-1,:,:,:self.max_z], -1)
-            z_idxs = np.expand_dims(z_idx, -1)
-            alpha = self.policy.alpha_model.get_coeff().cpu().numpy()
 
-            alpha_list = 1. * (z_idxs==0) + alpha * (z_idxs!=0)
-            total_return = alpha_list * buffer.ex_returns[:-1] + buffer.in_returns[:-1]
-            total_preds = alpha_list * self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1]) \
-                            + self.in_value_normalizer.denormalize(buffer.in_value_preds[:-1])
+            # z_idx = np.argmax(buffer.obs[:-1,:,:,:self.max_z], -1)
+            # z_idxs = np.expand_dims(z_idx, -1)
+            # # alpha = self.policy.alpha_model.get_coeff().cpu().numpy()
+
+            # mean_all = self.ex_value_normalizer.running_mean.detach().cpu().numpy()
+            # mean_z = self.ex_value_normalizer.running_mean_z
+            # mean_z = [x.detach().cpu().numpy()[0] for x in mean_z]
+            # coeff = np.exp(mean_z) / np.exp(mean_all)
+            
+            total_return = buffer.ex_returns[:-1] #+ buffer.in_returns[:-1] 
+            total_preds = self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1]) #\
+                            # + self.in_value_normalizer.denormalize(buffer.in_value_preds[:-1])
             advantages = total_return - total_preds
 
-            # advantages = buffer.ex_returns[:-1] - self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1])
-
         else:
-            total_return = buffer.ex_returns[:-1] + buffer.in_returns[:-1]
-            total_preds = buffer.ex_value_preds[:-1] + buffer.in_value_preds[:-1]
+            total_return = buffer.ex_returns[:-1] #+ buffer.in_returns[:-1]
+            total_preds = buffer.ex_value_preds[:-1] #+ buffer.in_value_preds[:-1]
             advantages = total_return - total_preds
 
         advantages_copy = advantages.copy()
@@ -317,7 +333,7 @@ class R_MAPPO():
 
         for k in train_info.keys():
             train_info[k] /= num_updates
-        train_info['alpha'] = alpha
+        # train_info['alpha'] = alpha
  
         return train_info
 

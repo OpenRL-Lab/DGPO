@@ -36,13 +36,13 @@ class R_MAPPOPolicy:
 
         self.alpha_model = AlphaModel(args) 
         self.alpha_optimizer = torch.optim.Adam(self.alpha_model.parameters(),
-                                                    lr=1e-4, eps=self.opti_eps,
+                                                    lr=1e-3, eps=self.opti_eps,
                                                     weight_decay=self.weight_decay)
         
 
         self.discriminator = R_Discriminator(args, self.z_obs_space, self.z_space, self.device) 
         self.discri_optimizer = torch.optim.Adam(self.discriminator.parameters(),
-                                                    lr=self.lr, eps=self.opti_eps,
+                                                    lr=1e-4, eps=self.opti_eps,
                                                     weight_decay=self.weight_decay)
         
         self.local_discri = R_Discriminator(args, self.z_local_obs_space, self.z_space, self.device) 
@@ -60,7 +60,6 @@ class R_MAPPOPolicy:
                                                  lr=self.critic_lr,
                                                  eps=self.opti_eps,
                                                  weight_decay=self.weight_decay)
-        
         
         self.in_critic = R_in_Critic(args, self.share_obs_space, self.device)
         self.in_critic_optimizer = torch.optim.Adam(self.in_critic.parameters(),
@@ -184,12 +183,15 @@ class R_MAPPOPolicy:
         z_idxs = np.expand_dims(z_idx, -1)
         cent_obs = cent_obs[:,self.max_z:]
 
-        if isTrain:
-            z_masks = None
-        else:
-            z_masks = np.ones([self.max_z, self.max_z])
-            z_masks = np.tril(z_masks)
-            z_masks = z_masks[z_idx]
+        z_masks = None
+
+        # # for iteration
+        # if isTrain:
+        #     z_masks = None
+        # else:
+        #     z_masks = np.ones([self.max_z, self.max_z])
+        #     z_masks = np.tril(z_masks)
+        #     z_masks = z_masks[z_idx]
 
         action_log_probs, rnn_states_z = \
             self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_idxs, masks, available_actions=z_masks, active_masks=active_masks)
@@ -217,12 +219,15 @@ class R_MAPPOPolicy:
         z_idxs = np.expand_dims(z_idx, -1)
         obs = obs[:,self.max_z:]
 
-        if isTrain:
-            z_masks = None
-        else:
-            z_masks = np.ones([self.max_z, self.max_z])
-            z_masks = np.tril(z_masks)
-            z_masks = z_masks[z_idx]
+        z_masks = None
+
+        # # for iteration
+        # if isTrain:
+        #     z_masks = None
+        # else:
+        #     z_masks = np.ones([self.max_z, self.max_z])
+        #     z_masks = np.tril(z_masks)
+        #     z_masks = z_masks[z_idx]
 
         action_log_probs, rnn_states_z = \
             self.local_discri.evaluate_actions(obs, rnn_states_z, z_idxs, masks, available_actions=z_masks, active_masks=active_masks)
@@ -240,5 +245,6 @@ class R_MAPPOPolicy:
         :param deterministic: (bool) whether the action should be mode of distribution or should be sampled.
         """
         actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
+        
         return actions, rnn_states_actor
 

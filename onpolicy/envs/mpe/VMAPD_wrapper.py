@@ -28,13 +28,15 @@ class VMAPDWrapper(gym.Wrapper):
             self.cur_z = np.random.randint(self.max_z) 
         obs_n = self.env.reset()
         z_vec = np.eye(self.max_z)[self.cur_z]
-        for a_id in range(self.num_agents):
-            obs_n[a_id] = np.concatenate([z_vec, obs_n[a_id]])
+        z_vec = np.expand_dims(z_vec, 0)
+        z_vec = z_vec.repeat(self.num_agents, 0)
+        obs_n = np.concatenate([z_vec, np.array(obs_n)], -1)
         return obs_n
     
     def step(self, actions):
         obs_n, reward_n, done_n, info_n = self.env.step(actions)
         z_vec = np.eye(self.max_z)[self.cur_z]
-        for a_id in range(self.num_agents):
-            obs_n[a_id] = np.concatenate([z_vec, obs_n[a_id]])
+        z_vec = np.expand_dims(z_vec, 0)
+        z_vec = z_vec.repeat(self.num_agents, 0)
+        obs_n = np.concatenate([z_vec, np.array(obs_n)], -1)
         return obs_n, reward_n, done_n, info_n
