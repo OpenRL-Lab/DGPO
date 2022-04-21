@@ -18,5 +18,5 @@ do
     --n_rollout_threads 128 --n_eval_rollout_threads 64 --episode_length 25 \
     --num_env_steps 20000000 --ppo_epoch 10 --use_ReLU \
     --wandb_name "cwz19" --user_name "cwz19" \
-    --use_eval --max_z 4
+    --use_eval 
 done

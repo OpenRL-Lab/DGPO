@@ -20,7 +20,7 @@ def make_train_env(all_args):
         def init_env():
             if all_args.env_name == "StarCraft2":
                 env = StarCraft2Env(all_args)
-                env = VMAPDWrapper(env, all_args.max_z)
+                env = VMAPDWrapper(env, all_args.max_z, rank%all_args.max_z)
             else:
                 print("Can not support the " + all_args.env_name + "environment.")
                 raise NotImplementedError
@@ -40,7 +40,7 @@ def make_eval_env(all_args):
         def init_env():
             if all_args.env_name == "StarCraft2":
                 env = StarCraft2Env(all_args)
-                env = VMAPDWrapper(env, all_args.max_z)
+                env = VMAPDWrapper(env, all_args.max_z, rank%all_args.max_z)
             else:
                 print("Can not support the " + all_args.env_name + "environment.")
                 raise NotImplementedError
@@ -156,7 +156,7 @@ def main(args):
     if all_args.share_policy:
         from onpolicy.runner.shared.smac_runner import SMACRunner as Runner
     else:
-        from onpolicy.runner.separated.smac_runner import SMACRunner as Runner
+        raise NotImplementedError
 
     runner = Runner(config)
     runner.run()

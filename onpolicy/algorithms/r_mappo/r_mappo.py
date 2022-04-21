@@ -145,11 +145,11 @@ class R_MAPPO():
         # actor update
         imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch)
 
-        surr1 = imp_weights * adv_targ
+        surr1 = imp_weights * adv_targ 
         surr2 = torch.clamp(imp_weights, 1.-self.clip_param, 1.+self.clip_param) * adv_targ
         L_clip = -torch.sum(torch.min(surr1, surr2), dim=-1, keepdim=True)
-        diver_mask = (z_log_probs.detach()>-math.log(self.max_z-.4))
-        target = L_clip * diver_mask
+        diver_mask = (in_return_batch.detach()>-2.) 
+        target = L_clip * diver_mask 
 
         if self._use_policy_active_masks:
             policy_loss = (target * active_masks_batch).sum() / active_masks_batch.sum()
@@ -238,20 +238,20 @@ class R_MAPPO():
         # alpha model update
         # target_value = self.ex_value_normalizer.get_z0_mean().detach()
         # cur_value = self.ex_value_normalizer.denormalize(ex_value_preds_batch)
-        target_value = torch.zeros([1])
-        cur_value = self.ex_value_normalizer.running_mean_var()[0].detach()
-        alpha_loss = self.policy.alpha_model.get_coeff_loss(target_value, cur_value, z_idxs)
+        # target_value = torch.zeros([1])
+        # cur_value = self.ex_value_normalizer.running_mean_var()[0].detach()
+        # alpha_loss = self.policy.alpha_model.get_coeff_loss(target_value, cur_value, z_idxs)
 
-        self.policy.alpha_optimizer.zero_grad()
+        # self.policy.alpha_optimizer.zero_grad()
 
-        alpha_loss.backward()
+        # alpha_loss.backward()
 
-        if self._use_max_grad_norm:
-            alpha_grad_norm = nn.utils.clip_grad_norm_(self.policy.alpha_model.parameters(), self.max_grad_norm)
-        else:
-            alpha_grad_norm = get_gard_norm(self.policy.alpha_model.parameters())
+        # if self._use_max_grad_norm:
+        #     alpha_grad_norm = nn.utils.clip_grad_norm_(self.policy.alpha_model.parameters(), self.max_grad_norm)
+        # else:
+        #     alpha_grad_norm = get_gard_norm(self.policy.alpha_model.parameters())
             
-        self.policy.alpha_optimizer.step()
+        # self.policy.alpha_optimizer.step()
 
         train_info = dict()
         train_info['ex_value_loss'] = ex_value_loss
@@ -259,10 +259,10 @@ class R_MAPPO():
         train_info['policy_loss'] = policy_loss
         train_info['dist_entropy'] = dist_entropy
         train_info['z_loss'] = z_loss
-        # train_info['loc_z_loss'] = loc_z_loss
-        train_info['alpha_loss'] = alpha_loss
+        train_info['in_return_batch'] = in_return_batch.mean()
         train_info['imp_weight'] = imp_weights.mean()
         train_info['diver_mask'] = (diver_mask*1.).mean()
+        # train_info['alpha_loss'] = alpha_loss
         # train_info['ex_critic_grad_norm'] = ex_critic_grad_norm
         # train_info['in_critic_grad_norm'] = in_critic_grad_norm
         # train_info['actor_grad_norm'] = actor_grad_norm

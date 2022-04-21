@@ -5,10 +5,11 @@ from gym import spaces
 
 class VMAPDWrapper(object):
 
-    def __init__(self, env, max_z):
+    def __init__(self, env, max_z, fix_z):
         super().__init__()
         self.env = env
         self.max_z = max_z
+        self.fix_z = fix_z
         self.cur_z = -1
         self.num_agents = self.env.n_agents
         self.z_space = [spaces.Discrete(self.max_z) for _ in range(self.num_agents)]
@@ -22,12 +23,14 @@ class VMAPDWrapper(object):
         for observation_space in self.share_observation_space:
             observation_space[0] += self.max_z
     
-    def reset(self, fix_z=None, **kwargs):
+    def reset(self, fix_z=None):
         if fix_z is not None:
             self.cur_z = fix_z
+        elif self.fix_z is not None:
+            self.cur_z = self.fix_z
         else:
             self.cur_z = np.random.randint(self.max_z) 
-        local_o, global_s, avail_actions = self.env.reset(**kwargs)
+        local_o, global_s, avail_actions = self.env.reset()
         z_vec = np.eye(self.max_z)[self.cur_z]
         for a_id in range(self.num_agents):
             local_o[a_id] = np.concatenate([z_vec, local_o[a_id]])

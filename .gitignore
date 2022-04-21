@@ -14,3 +14,11 @@ api
 logs
 .nfs*
 *.so
+
+# smac 
+*.events
+*.history
+*.bin
+*.info
+*.txt
+*.SC2Map

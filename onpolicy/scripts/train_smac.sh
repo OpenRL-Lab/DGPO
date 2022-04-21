@@ -10,9 +10,11 @@ echo "env is ${env}, map is ${map}, algo is ${algo}, exp is ${exp}, max seed is 
 for seed in `seq ${seed_max}`;
 do
     echo "seed is ${seed}:"
-    CUDA_VISIBLE_DEVICES=0 python3 train/train_smac.py --env_name ${env} --algorithm_name ${algo} --experiment_name ${exp} \
-    --map_name ${map} --seed ${seed} --num_agents ${num_agents} --n_training_threads 1 --n_rollout_threads 32 \
-    --num_mini_batch 1 --episode_length 400 --num_env_steps 10000000 --ppo_epoch 10 --use_ReLU \
-    --use_value_active_masks --wandb_name "cwz19" --user_name "cwz19" \
-    --use_eval # --use_wandb
+    CUDA_VISIBLE_DEVICES=0 python3 train/train_smac.py \
+    --env_name ${env} --algorithm_name ${algo} --experiment_name ${exp} \
+    --map_name ${map} --seed ${seed} --num_agents ${num_agents} --n_training_threads 1 \
+    --num_mini_batch 1 --num_env_steps 200000000 --ppo_epoch 10  \
+    --use_ReLU --use_value_active_masks --wandb_name "cwz19" --user_name "cwz19" \
+    --n_rollout_threads 32 --n_eval_rollout_threads 32 --episode_length 400 \
+    --use_eval 
 done

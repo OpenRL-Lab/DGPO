@@ -12,6 +12,7 @@ class SMACRunner(Runner):
     """Runner class to perform training, evaluation. and data collection for SMAC. See parent class for details."""
     def __init__(self, config):
         super(SMACRunner, self).__init__(config)
+        self.running_mean_cnt = 0
 
     def run(self):
         self.warmup()   
@@ -28,19 +29,38 @@ class SMACRunner(Runner):
 
             for step in range(self.episode_length):
                 # Sample actions
-                values, actions, action_log_probs, rnn_states, rnn_states_critic = self.collect(step)
+                ex_values, in_values, actions, action_log_probs, rnn_states, \
+                        rnn_states_ex_critic, rnn_states_in_critic = self.collect(step)
                     
                 # Obser reward and next obs
                 obs, share_obs, rewards, dones, infos, available_actions = self.envs.step(actions)
-
-                data = obs, share_obs, rewards, dones, infos, available_actions, values, \
-                        actions, action_log_probs, rnn_states, rnn_states_critic 
                 
                 # insert data into buffer
-                self.insert(data)
+                data = dict()
+                data['obs'] = obs
+                data['share_obs'] = share_obs.copy()
+                data['rnn_states_actor'] = rnn_states
+                data['rnn_states_ex_critic'] = rnn_states_ex_critic
+                data['rnn_states_in_critic'] = rnn_states_in_critic
+                data['actions'] = actions
+                data['action_log_probs'] = action_log_probs
+                data['ex_value_preds'] = ex_values
+                data['in_value_preds'] = in_values
+                data['rewards'] = rewards
+                data['dones'] = dones
+                data['available_actions'] = available_actions
+                data['infos'] = infos
+                self.insert(data, step)
                 
                 # VMAPD
-                self.add_reward(step, dones)
+                z_log_probs, loc_z_log_probs, rnn_states_z, loc_rnn_states_z = self.VMAPD_collect(step)
+                data = dict()
+                data['rnn_states_z'] = rnn_states_z
+                data['loc_rnn_states_z'] = loc_rnn_states_z
+                data['z_log_probs'] = z_log_probs
+                data['loc_z_log_probs'] = loc_z_log_probs
+                data['dones'] = dones
+                self.insert(data, step)
 
             # compute return and update network
             self.compute()
@@ -110,75 +130,92 @@ class SMACRunner(Runner):
         self.buffer.available_actions[0] = available_actions.copy()
 
     @torch.no_grad()
-    def add_reward(self, step, dones):
+    def VMAPD_collect(self, step):
         self.trainer.prep_rollout()
         z_log_prob, rnn_state_z = self.trainer.policy.evaluate_z(
             np.concatenate(self.buffer.share_obs[step+1]),
             np.concatenate(self.buffer.rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step+1])
+            np.concatenate(self.buffer.masks[step+1]),
+            isTrain=False,
         )
         loc_z_log_prob, loc_rnn_state_z = self.trainer.policy.evaluate_local_z(
             np.concatenate(self.buffer.obs[step+1]),
             np.concatenate(self.buffer.loc_rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step+1])
+            np.concatenate(self.buffer.masks[step+1]),
+            isTrain=False,
         )
         # [self.envs, agents, dim]
         z_log_probs = np.array(np.split(_t2n(z_log_prob), self.n_rollout_threads))
         rnn_states_z = np.array(np.split(_t2n(rnn_state_z), self.n_rollout_threads))
         loc_z_log_probs = np.array(np.split(_t2n(loc_z_log_prob), self.n_rollout_threads))
         loc_rnn_states_z = np.array(np.split(_t2n(loc_rnn_state_z), self.n_rollout_threads))
-        loc_rewards = np.mean(loc_z_log_probs, axis=1, keepdims=True).repeat(self.num_agents,1)
-        dones_env = np.all(dones, axis=1)
-        rnn_states_z[dones_env==True] *= 0
-        loc_rnn_states_z[dones_env==True] *= 0
-        self.buffer.rnn_states_z[step+1] = rnn_states_z.copy() # need prettify
-        self.buffer.loc_rnn_states_z[step+1] = loc_rnn_states_z.copy()
-        self.buffer.rewards[step] += z_log_probs.copy() 
-        # self.buffer.rewards[step] -= loc_rewards.copy()
-        # self.buffer.rewards[step] += z_log_probs.copy()
+
+        return z_log_probs, loc_z_log_probs, rnn_states_z, loc_rnn_states_z
 
     @torch.no_grad()
     def collect(self, step):
         self.trainer.prep_rollout()
-        value, action, action_log_prob, rnn_state, rnn_state_critic \
-            = self.trainer.policy.get_actions(np.concatenate(self.buffer.share_obs[step]),
-                                            np.concatenate(self.buffer.obs[step]),
-                                            np.concatenate(self.buffer.rnn_states[step]),
-                                            np.concatenate(self.buffer.rnn_states_critic[step]),
-                                            np.concatenate(self.buffer.masks[step]),
-                                            np.concatenate(self.buffer.available_actions[step]))
+        ex_value, in_value, action, action_log_prob, \
+            rnn_states, rnn_states_ex_critic, rnn_states_in_critic \
+                = self.trainer.policy.get_actions(
+                    np.concatenate(self.buffer.share_obs[step]),
+                    np.concatenate(self.buffer.obs[step]),
+                    np.concatenate(self.buffer.rnn_states[step]),
+                    np.concatenate(self.buffer.rnn_states_ex_critic[step]),
+                    np.concatenate(self.buffer.rnn_states_in_critic[step]),
+                    np.concatenate(self.buffer.masks[step]),
+                    np.concatenate(self.buffer.available_actions[step])
+                )
         # [self.envs, agents, dim]
-        values = np.array(np.split(_t2n(value), self.n_rollout_threads))
+        ex_values = np.array(np.split(_t2n(ex_value), self.n_rollout_threads))
+        in_values = np.array(np.split(_t2n(in_value), self.n_rollout_threads))
         actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
         action_log_probs = np.array(np.split(_t2n(action_log_prob), self.n_rollout_threads))
-        rnn_states = np.array(np.split(_t2n(rnn_state), self.n_rollout_threads))
-        rnn_states_critic = np.array(np.split(_t2n(rnn_state_critic), self.n_rollout_threads))
+        rnn_states = np.array(np.split(_t2n(rnn_states), self.n_rollout_threads))
+        rnn_states_ex_critic = np.array(np.split(_t2n(rnn_states_ex_critic), self.n_rollout_threads))
+        rnn_states_in_critic = np.array(np.split(_t2n(rnn_states_in_critic), self.n_rollout_threads))
 
-        return values, actions, action_log_probs, rnn_states, rnn_states_critic
+        return ex_values, in_values, actions, action_log_probs, rnn_states, \
+                                        rnn_states_ex_critic, rnn_states_in_critic
 
-    def insert(self, data):
-        obs, share_obs, rewards, dones, infos, available_actions, \
-        values, actions, action_log_probs, rnn_states, rnn_states_critic = data
+    def insert(self, data, step):   
 
-        dones_env = np.all(dones, axis=1)
+        dones_env = np.all(data['dones'], axis=1)
+        dones = (data['dones']==True)
 
-        rnn_states[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
-        rnn_states_critic[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, *self.buffer.rnn_states_critic.shape[3:]), dtype=np.float32)
+        if 'rnn_states_actor' in data:
+            data['rnn_states_actor'][dones] = \
+                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+        if 'rnn_states_ex_critic' in data:
+            data['rnn_states_ex_critic'][dones] = \
+                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+        if 'rnn_states_in_critic' in data:
+            data['rnn_states_in_critic'][dones] = \
+                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+        if 'rnn_states_z' in data:
+            data['rnn_states_z'][dones] = \
+                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
+        if 'loc_rnn_states_z' in data:
+            data['loc_rnn_states_z'][dones] = \
+                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
 
-        masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-        masks[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
-
-        active_masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-        active_masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
-        active_masks[dones_env == True] = np.ones(((dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
-
-        bad_masks = np.array([[[0.0] if info[agent_id]['bad_transition'] else [1.0] for agent_id in range(self.num_agents)] for info in infos])
+        data['masks'] = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
+        data['masks'][dones] = np.zeros(((dones).sum(), 1), dtype=np.float32)
         
-        if not self.use_centralized_V:
-            share_obs = obs
+        data['active_masks'] = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
+        data['active_masks'][dones==True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
+        data['active_masks'][dones_env==True] = \
+            np.ones(((dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
 
-        self.buffer.insert(share_obs, obs, rnn_states, rnn_states_critic,
-                           actions, action_log_probs, values, rewards, masks, bad_masks, active_masks, available_actions)
+        if 'infos' in data:
+            data['bad_masks'] = \
+                np.array([[[0.0] if info[agent_id]['bad_transition'] else [1.0] \
+                            for agent_id in range(self.num_agents)] for info in data['infos']])
+
+        if not self.use_centralized_V and 'obs' in data:
+            data['share_obs'] = data['obs']
+
+        self.buffer.insert(data, step)
 
     def log_train(self, train_infos, total_num_steps):
         train_infos["average_step_rewards"] = np.mean(self.buffer.rewards)
@@ -190,13 +227,21 @@ class SMACRunner(Runner):
     
     @torch.no_grad()
     def eval(self, total_num_steps):
+
         eval_battles_won = 0
         eval_episode = 0
+        
+        seed_cnt = self.n_eval_rollout_threads//self.max_z
+        seed_num = np.arange(seed_cnt*self.running_mean_cnt,seed_cnt*(self.running_mean_cnt+1))
+        seed_num = np.expand_dims(seed_num, 1)
+        seed_num = seed_num.repeat(self.max_z, 1)
+        seed_num = seed_num.flatten()
+        self.eval_envs.seed(seed_num)
 
         eval_episode_rewards = []
         one_episode_rewards = []
 
-        eval_obs, eval_share_obs, eval_available_actions = self.eval_envs.reset()
+        eval_obs, eval_share_obs, eval_available_actions = self.eval_envs.reset(seed_num%self.max_z)
 
         eval_rnn_states = np.zeros((self.n_eval_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
         eval_masks = np.ones((self.n_eval_rollout_threads, self.num_agents, 1), dtype=np.float32)
@@ -213,7 +258,8 @@ class SMACRunner(Runner):
             eval_rnn_states = np.array(np.split(_t2n(eval_rnn_states), self.n_eval_rollout_threads))
             
             # Obser reward and next obs
-            eval_obs, eval_share_obs, eval_rewards, eval_dones, eval_infos, eval_available_actions = self.eval_envs.step(eval_actions)
+            eval_obs, eval_share_obs, eval_rewards, eval_dones, eval_infos, eval_available_actions \
+                                                                    = self.eval_envs.step(eval_actions)
             one_episode_rewards.append(eval_rewards)
 
             eval_dones_env = np.all(eval_dones, axis=1)
@@ -246,51 +292,51 @@ class SMACRunner(Runner):
     @torch.no_grad()
     def render(self):
         render_battles_won = 0
-        render_episode = 0
 
         render_episode_rewards = []
         one_episode_rewards = []
 
-        render_obs, render_share_obs, render_available_actions = self.envs.reset(render_episode)
-
-        render_rnn_states = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
-        render_masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-
-        while True:
-            self.trainer.prep_rollout()
-            render_actions, render_rnn_states = \
-                self.trainer.policy.act(np.concatenate(render_obs),
-                                        np.concatenate(render_rnn_states),
-                                        np.concatenate(render_masks),
-                                        np.concatenate(render_available_actions),
-                                        deterministic=True)
-            render_actions = np.array(np.split(_t2n(render_actions), self.n_rollout_threads))
-            render_rnn_states = np.array(np.split(_t2n(render_rnn_states), self.n_rollout_threads))
+        for z in range(self.max_z):
+    
+            self.envs.seed(seed=self.seed)
+            render_obs, render_share_obs, render_available_actions = self.envs.reset(z)
             
-            # Obser reward and next obs
-            render_obs, render_share_obs, render_rewards, render_dones, render_infos, render_available_actions = self.envs.step(render_actions)
-            one_episode_rewards.append(render_rewards)
+            render_rnn_states = \
+                np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
+            render_masks = \
+                np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
 
-            render_dones_env = np.all(render_dones, axis=1)
+            while True:
+                self.trainer.prep_rollout()
+                render_actions, render_rnn_states = \
+                    self.trainer.policy.act(np.concatenate(render_obs),
+                                            np.concatenate(render_rnn_states),
+                                            np.concatenate(render_masks),
+                                            np.concatenate(render_available_actions),
+                                            deterministic=True)
+                render_actions = np.array(np.split(_t2n(render_actions), self.n_rollout_threads))
+                render_rnn_states = np.array(np.split(_t2n(render_rnn_states), self.n_rollout_threads))
+                
+                # Obser reward and next obs
+                render_obs, render_share_obs, render_rewards, render_dones, render_infos, render_available_actions = self.envs.step(render_actions)
+                one_episode_rewards.append(render_rewards)
 
-            render_rnn_states[render_dones_env == True] = np.zeros(((render_dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
+                render_dones_env = np.all(render_dones, axis=1)
 
-            render_masks = np.ones((self.all_args.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-            render_masks[render_dones_env == True] = np.zeros(((render_dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
+                render_rnn_states[render_dones_env == True] = np.zeros(((render_dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
 
-            for render_i in range(self.n_rollout_threads):
-                if render_dones_env[render_i]:
-                    render_episode += 1
+                render_masks = np.ones((self.all_args.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
+                render_masks[render_dones_env == True] = np.zeros(((render_dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
+
+                if render_dones_env[0]:
                     render_episode_rewards.append(np.sum(one_episode_rewards, axis=0))
                     one_episode_rewards = []
-                    if render_infos[render_i][0]['won']:
+                    if render_infos[0][0]['won']:
                         render_battles_won += 1
+                    break
 
-            if render_episode >= self.max_z:
-                render_episode_rewards = np.array(render_episode_rewards)
-                render_win_rate = render_battles_won/render_episode
-                print("render win rate is {}.".format(render_win_rate))
-                break
+        render_episode_rewards = np.array(render_episode_rewards)
+        render_win_rate = render_battles_won/self.max_z
+        print("render win rate is {}.".format(render_win_rate))
         
-        print('saving to replay')
         self.envs.save_replay()

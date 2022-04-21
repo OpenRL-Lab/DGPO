@@ -120,7 +120,7 @@ class SharedReplayBuffer(object):
         }
 
         for key in data:
-            if key not in ['dones']:
+            if key not in ['dones', 'infos']:
                 var = key2var[key][0]
                 idx = key2var[key][1] + self.step
                 var[idx] = data[key].copy()
