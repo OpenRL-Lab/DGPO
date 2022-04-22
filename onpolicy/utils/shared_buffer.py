@@ -384,7 +384,7 @@ class SharedReplayBuffer(object):
                   value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch,\
                   adv_targ, available_actions_batch
 
-    def recurrent_generator(self, advantages, num_mini_batch, data_chunk_length):
+    def recurrent_generator(self, ex_advantages, in_advantages, num_mini_batch, data_chunk_length):
         """
         Yield training data for chunked RNN training.
         :param advantages: (np.ndarray) advantage estimates.
@@ -408,7 +408,8 @@ class SharedReplayBuffer(object):
 
         actions = _cast(self.actions)
         action_log_probs = _cast(self.action_log_probs)
-        advantages = _cast(advantages)
+        ex_advantages = _cast(ex_advantages)
+        in_advantages = _cast(in_advantages)
         ex_value_preds = _cast(self.ex_value_preds[:-1])
         in_value_preds = _cast(self.in_value_preds[:-1])
         ex_returns = _cast(self.ex_returns[:-1])
@@ -446,7 +447,8 @@ class SharedReplayBuffer(object):
             masks_batch = []
             active_masks_batch = []
             old_action_log_probs_batch = []
-            adv_targ = []
+            ex_adv_targ = []
+            in_adv_targ = []
 
             for index in indices:
 
@@ -464,7 +466,8 @@ class SharedReplayBuffer(object):
                 masks_batch.append(masks[ind:ind + data_chunk_length])
                 active_masks_batch.append(active_masks[ind:ind + data_chunk_length])
                 old_action_log_probs_batch.append(action_log_probs[ind:ind + data_chunk_length])
-                adv_targ.append(advantages[ind:ind + data_chunk_length])
+                ex_adv_targ.append(ex_advantages[ind:ind + data_chunk_length])
+                in_adv_targ.append(in_advantages[ind:ind + data_chunk_length])
                 # size [T+1 N M Dim]-->[T N M Dim]-->[N M T Dim]-->[N*M*T,Dim]-->[1,Dim]
                 rnn_states_batch.append(rnn_states[ind])
                 loc_rnn_states_z_batch.append(loc_rnn_states_z[ind])
@@ -488,7 +491,8 @@ class SharedReplayBuffer(object):
             masks_batch = np.stack(masks_batch, axis=1)
             active_masks_batch = np.stack(active_masks_batch, axis=1)
             old_action_log_probs_batch = np.stack(old_action_log_probs_batch, axis=1)
-            adv_targ = np.stack(adv_targ, axis=1)
+            ex_adv_targ = np.stack(ex_adv_targ, axis=1)
+            in_adv_targ = np.stack(in_adv_targ, axis=1)
 
             # States is just a (N, -1) from_numpy
             rnn_states_batch = np.stack(rnn_states_batch).reshape(N, *self.rnn_states.shape[3:])
@@ -512,11 +516,12 @@ class SharedReplayBuffer(object):
             masks_batch = _flatten(L, N, masks_batch)
             active_masks_batch = _flatten(L, N, active_masks_batch)
             old_action_log_probs_batch = _flatten(L, N, old_action_log_probs_batch)
-            adv_targ = _flatten(L, N, adv_targ)
+            ex_adv_targ = _flatten(L, N, ex_adv_targ)
+            in_adv_targ = _flatten(L, N, in_adv_targ)
 
             yield share_obs_batch, obs_batch, \
                     rnn_states_batch, rnn_states_z_batch, loc_rnn_states_z_batch, \
                     rnn_states_ex_critic_batch, rnn_states_in_critic_batch, \
                     actions_batch, ex_value_preds_batch, in_value_preds_batch, \
                     ex_return_batch, in_return_batch, masks_batch, active_masks_batch, \
-                    old_action_log_probs_batch, adv_targ, available_actions_batch
+                    old_action_log_probs_batch, ex_adv_targ, in_adv_targ, available_actions_batch

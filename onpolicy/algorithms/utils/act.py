@@ -49,7 +49,7 @@ class ACTLayer(nn.Module):
         :return actions: (torch.Tensor) actions to take.
         :return action_log_probs: (torch.Tensor) log probabilities of taken actions.
         """
-        if self.mixed_action :
+        if self.mixed_action:
             actions = []
             action_log_probs = []
             for action_out in self.action_outs:
@@ -149,14 +149,18 @@ class ACTLayer(nn.Module):
                     dist_entropy.append(action_logit.entropy().mean())
 
             action_log_probs = torch.cat(action_log_probs, -1) # ! could be wrong
-            dist_entropy = sum(dist_entropy)/len(dist_entropy)
+            # dist_entropy = sum(dist_entropy)/len(dist_entropy)
         
         else:
             action_logits = self.action_out(x, available_actions)
             action_log_probs = action_logits.log_probs(action)
             if active_masks is not None:
-                dist_entropy = (action_logits.entropy()*active_masks.squeeze(-1)).sum()/active_masks.sum()
+                dist_entropy = action_logits.entropy() * active_masks.squeeze(-1)
             else:
-                dist_entropy = action_logits.entropy().mean()
+                dist_entropy = action_logits.entropy()
+            # if active_masks is not None:
+            #     dist_entropy = (action_logits.entropy()*active_masks.squeeze(-1)).sum()/active_masks.sum()
+            # else:
+            #     dist_entropy = action_logits.entropy().mean()
         
         return action_log_probs, dist_entropy

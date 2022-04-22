@@ -114,9 +114,10 @@ class R_MAPPO():
         rnn_states_ex_critic_batch, rnn_states_in_critic_batch, \
         actions_batch, ex_value_preds_batch, in_value_preds_batch, \
         ex_return_batch, in_return_batch, masks_batch, active_masks_batch, \
-        old_action_log_probs_batch, adv_targ, available_actions_batch = sample
+        old_action_log_probs_batch, ex_adv_targ, in_adv_targ, available_actions_batch = sample
 
-        adv_targ = check(adv_targ).to(**self.tpdv)
+        ex_adv_targ = check(ex_adv_targ).to(**self.tpdv)
+        in_adv_targ = check(in_adv_targ).to(**self.tpdv)
         ex_return_batch = check(ex_return_batch).to(**self.tpdv)
         in_return_batch = check(in_return_batch).to(**self.tpdv)
         active_masks_batch = check(active_masks_batch).to(**self.tpdv)
@@ -129,15 +130,18 @@ class R_MAPPO():
         z_idxs = np.expand_dims(np.argmax(z_vec, -1), -1)
 
         # Reshape to do in a single forward pass for all steps
-        ex_values, in_values, action_log_probs, dist_entropy = self.policy.evaluate_actions(share_obs_batch,
-                                                                                            obs_batch, 
-                                                                                            rnn_states_batch, 
-                                                                                            rnn_states_ex_critic_batch, 
-                                                                                            rnn_states_in_critic_batch,
-                                                                                            actions_batch, 
-                                                                                            masks_batch, 
-                                                                                            available_actions_batch,
-                                                                                            active_masks_batch)
+        ex_values, in_values, action_log_probs, dist_entropy = \
+            self.policy.evaluate_actions(
+                share_obs_batch,
+                obs_batch, 
+                rnn_states_batch, 
+                rnn_states_ex_critic_batch, 
+                rnn_states_in_critic_batch,
+                actions_batch, 
+                masks_batch, 
+                available_actions_batch,
+                active_masks_batch
+            )
                                                                                             
         z_log_probs, _ = self.policy.evaluate_z(
             share_obs_batch, rnn_states_z_batch, masks_batch, active_masks=active_masks_batch, isTrain=True)
@@ -145,21 +149,25 @@ class R_MAPPO():
         # actor update
         imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch)
 
-        surr1 = imp_weights * adv_targ 
-        surr2 = torch.clamp(imp_weights, 1.-self.clip_param, 1.+self.clip_param) * adv_targ
-        L_clip = -torch.sum(torch.min(surr1, surr2), dim=-1, keepdim=True)
-        diver_mask = (in_return_batch.detach()>-2.) 
-        target = L_clip * diver_mask 
+        ex_surr1 = imp_weights * ex_adv_targ 
+        ex_surr2 = torch.clamp(imp_weights, 1.-self.clip_param, 1.+self.clip_param) * ex_adv_targ
+        ex_L_clip = -torch.sum(torch.min(ex_surr1, ex_surr2), dim=-1, keepdim=True)
 
-        if self._use_policy_active_masks:
-            policy_loss = (target * active_masks_batch).sum() / active_masks_batch.sum()
-        else:
-            policy_loss = target.mean()
+        in_surr1 = imp_weights * in_adv_targ 
+        in_surr2 = torch.clamp(imp_weights, 1.-self.clip_param, 1.+self.clip_param) * in_adv_targ
+        in_L_clip = -torch.sum(torch.min(in_surr1, in_surr2), dim=-1, keepdim=True)
+
+        # diver_mask = (in_return_batch.detach()>-5.) 
+        diver_mask = z_log_probs.detach() > -math.log(self.max_z-0.2)
+        target = ex_L_clip * diver_mask #- z_log_probs * ~diver_mask
+
+        policy_loss = target - dist_entropy.mean() * self.entropy_coef
+        policy_loss = (policy_loss * active_masks_batch).sum() / active_masks_batch.sum()
 
         self.policy.actor_optimizer.zero_grad()
 
         if update_actor:
-            (policy_loss - dist_entropy * self.entropy_coef).backward()
+            policy_loss.backward()
 
         if self._use_max_grad_norm:
             actor_grad_norm = nn.utils.clip_grad_norm_(self.policy.actor.parameters(), self.max_grad_norm)
@@ -199,6 +207,14 @@ class R_MAPPO():
             in_critic_grad_norm = get_gard_norm(self.policy.in_critic.parameters())
 
         self.policy.in_critic_optimizer.step()
+
+        # lr update
+        lr = None
+        for param_group in self.policy.discri_optimizer.param_groups:
+            coeff = 0.05 - (diver_mask*1.).mean().item()
+            new_lr = 1e-4 + coeff / 0.05 * 2e-4 
+            param_group['lr'] = max(new_lr, 1e-4)
+            lr = param_group['lr']
 
         # discriminator update
         z_log_probs, _ = self.policy.evaluate_z(
@@ -257,11 +273,12 @@ class R_MAPPO():
         train_info['ex_value_loss'] = ex_value_loss
         train_info['in_value_loss'] = in_value_loss
         train_info['policy_loss'] = policy_loss
-        train_info['dist_entropy'] = dist_entropy
+        train_info['dist_entropy'] = dist_entropy.mean()
         train_info['z_loss'] = z_loss
         train_info['in_return_batch'] = in_return_batch.mean()
         train_info['imp_weight'] = imp_weights.mean()
         train_info['diver_mask'] = (diver_mask*1.).mean()
+        train_info['lr'] = lr
         # train_info['alpha_loss'] = alpha_loss
         # train_info['ex_critic_grad_norm'] = ex_critic_grad_norm
         # train_info['in_critic_grad_norm'] = in_critic_grad_norm
@@ -282,42 +299,50 @@ class R_MAPPO():
         """
         
         if self._use_popart or self._use_valuenorm:
-
-            # z_idx = np.argmax(buffer.obs[:-1,:,:,:self.max_z], -1)
-            # z_idxs = np.expand_dims(z_idx, -1)
-            # # alpha = self.policy.alpha_model.get_coeff().cpu().numpy()
-
-            # mean_all = self.ex_value_normalizer.running_mean.detach().cpu().numpy()
-            # mean_z = self.ex_value_normalizer.running_mean_z
-            # mean_z = [x.detach().cpu().numpy()[0] for x in mean_z]
-            # coeff = np.exp(mean_z) / np.exp(mean_all)
             
-            total_return = buffer.ex_returns[:-1] #+ buffer.in_returns[:-1] 
-            total_preds = self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1]) #\
-                            # + self.in_value_normalizer.denormalize(buffer.in_value_preds[:-1])
-            advantages = total_return - total_preds
+            ex_total_return = buffer.ex_returns[:-1]
+            ex_total_preds = self.ex_value_normalizer.denormalize(buffer.ex_value_preds[:-1]) 
+            ex_advantages = ex_total_return - ex_total_preds
+
+            in_total_return = buffer.in_returns[:-1]
+            in_total_preds = self.in_value_normalizer.denormalize(buffer.in_value_preds[:-1]) 
+            in_advantages = in_total_return - in_total_preds
 
         else:
-            total_return = buffer.ex_returns[:-1] #+ buffer.in_returns[:-1]
-            total_preds = buffer.ex_value_preds[:-1] #+ buffer.in_value_preds[:-1]
-            advantages = total_return - total_preds
+            ex_total_return = buffer.ex_returns[:-1] 
+            ex_total_preds = buffer.ex_value_preds[:-1] 
+            ex_advantages = ex_total_return - ex_total_preds
+            in_total_return = buffer.in_returns[:-1] 
+            in_total_preds = buffer.in_value_preds[:-1] 
+            in_advantages = in_total_return - in_total_preds
 
-        advantages_copy = advantages.copy()
-        advantages_copy[buffer.active_masks[:-1] == 0.0] = np.nan
-        mean_advantages = np.nanmean(advantages_copy)
-        std_advantages = np.nanstd(advantages_copy)
-        advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
+        ex_advantages_copy = ex_advantages.copy()
+        ex_advantages_copy[buffer.active_masks[:-1]==0.0] = np.nan
+        ex_mean_advantages = np.nanmean(ex_advantages_copy)
+        ex_std_advantages = np.nanstd(ex_advantages_copy)
+        ex_advantages = (ex_advantages - ex_mean_advantages) / (ex_std_advantages + 1e-5)
+
+        in_advantages_copy = in_advantages.copy()
+        in_advantages_copy[buffer.active_masks[:-1]==0.0] = np.nan
+        in_mean_advantages = np.nanmean(in_advantages_copy)
+        in_std_advantages = np.nanstd(in_advantages_copy)
+        in_advantages = (in_advantages - in_mean_advantages) / (in_std_advantages + 1e-5)
         
         train_info = {}
 
         for _ in range(self.ppo_epoch):
 
             if self._use_recurrent_policy:
-                data_generator = buffer.recurrent_generator(advantages, self.num_mini_batch, self.data_chunk_length)
+                data_generator = buffer.recurrent_generator(
+                    ex_advantages, 
+                    in_advantages, 
+                    self.num_mini_batch, 
+                    self.data_chunk_length
+                )
             elif self._use_naive_recurrent:
-                data_generator = buffer.naive_recurrent_generator(advantages, self.num_mini_batch)
+                raise NotImplementedError
             else:
-                data_generator = buffer.feed_forward_generator(advantages, self.num_mini_batch)
+                raise NotImplementedError
 
             for sample in data_generator:
 
