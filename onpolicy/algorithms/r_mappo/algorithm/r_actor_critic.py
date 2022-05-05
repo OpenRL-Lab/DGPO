@@ -275,15 +275,15 @@ class R_in_Critic(nn.Module):
             self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
         
         self.z_base = MLPBase(args, (self._max_z,))
-        # self.base2 = MLPBase(args, (self.hidden_size*2,))
+        self.base2 = MLPBase(args, (self.hidden_size*2,))
 
         def init_(m):
             return init(m, init_method, lambda x: nn.init.constant_(x, 0))
 
         if self._use_popart:
-            self.v_out = init_(PopArt(self.hidden_size*2, 1, device=device))
+            self.v_out = init_(PopArt(self.hidden_size, 1, device=device))
         else:
-            self.v_out = init_(nn.Linear(self.hidden_size*2, 1))
+            self.v_out = init_(nn.Linear(self.hidden_size, 1))
 
         self.to(device)
 
@@ -308,7 +308,7 @@ class R_in_Critic(nn.Module):
     
         z_features = self.z_base(cent_obs[:,:self._max_z])
         critic_features = torch.cat([critic_features, z_features], -1)
-        # critic_features = self.base2(critic_features)
+        critic_features = self.base2(critic_features)
 
         values = self.v_out(critic_features)
 

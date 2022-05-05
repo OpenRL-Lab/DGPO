@@ -162,22 +162,24 @@ class R_MAPPO():
         in_surr2 = torch.clamp(imp_weights, 1.-self.clip_param, 1.+self.clip_param) * in_adv_targ
         in_L_clip = -torch.sum(torch.min(in_surr1, in_surr2), dim=-1, keepdim=True)
 
-        diver_mask = torch.exp(7.5 * z_log_probs.detach())
+        # diver_mask = torch.exp(7.5 * z_log_probs.detach())
         # diver_target = np.array([0.,0.67,0.5,0.5])[:self.max_z]
         # diver_target = check(diver_target).to(**self.tpdv)
         # diver_mask = (z_log_probs.detach() > torch.log(diver_target[z_idxs_batch]))
         # diver_mask = in_return_batch.detach() > -math.log(1.9)/(1-self.gamma[1])
-        # diver_mask = z_log_probs.detach() > -math.log(self.div_thresh)
+        diver_mask = z_log_probs.detach() > -math.log(self.div_thresh)
         
-        # for z in range(self.max_z):
-        #     zmask_cnt = diver_mask.flatten() * (z_idxs_batch==z).flatten()
-        #     self.zmask_cnt[z] = (zmask_cnt*1.).mean().detach()
+        for z in range(self.max_z):
+            zmask_cnt = diver_mask.flatten() * (z_idxs_batch==z).flatten()
+            self.zmask_cnt[z] = (zmask_cnt*1.).mean().detach()
 
-        # stage2_mask = check(self.zmask_cnt).to(**self.tpdv)
-        # stage2_mask = (stage2_mask > 0)
-        # stage2_mask = stage2_mask[z_idxs_batch]
+        stage2_mask = check(self.zmask_cnt).to(**self.tpdv)
+        stage2_mask = (stage2_mask > 0)
+        stage2_mask = stage2_mask[z_idxs_batch]
             
-        target = ex_L_clip * diver_mask # + in_L_clip * ~diver_mask 
+        target = ex_L_clip * diver_mask 
+        target = target + in_L_clip * ~diver_mask * 0.1 * ~stage2_mask 
+        target = target - dist_entropy.unsqueeze(1) * ~diver_mask * 0.1 * ~stage2_mask
 
         policy_loss = target - dist_entropy.mean() * self.entropy_coef
         policy_loss = (policy_loss * active_masks_batch).sum() / active_masks_batch.sum()
