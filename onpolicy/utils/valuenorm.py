@@ -34,7 +34,7 @@ class ValueNorm(nn.Module):
         self.input_shape = input_shape
         self.norm_axes = norm_axes
         self.epsilon = epsilon
-        self.beta = 1 - 1e-3
+        self.beta = 1 - 1e-2
         self.max_z = args.max_z
         self.per_element_update = per_element_update
         self.tpdv = dict(dtype=torch.float32, device=device)

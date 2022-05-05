@@ -1,3 +1,4 @@
+from matplotlib.style import available
 import torch
 import copy
 import numpy as np
@@ -22,6 +23,7 @@ class R_MAPPOPolicy:
         self.device = device
         self.lr = args.lr
         self.critic_lr = args.critic_lr
+        self.discri_lr = args.discri_lr
         self.opti_eps = args.opti_eps
         self.weight_decay = args.weight_decay
         self.max_z = args.max_z
@@ -36,18 +38,18 @@ class R_MAPPOPolicy:
 
         self.alpha_model = AlphaModel(args) 
         self.alpha_optimizer = torch.optim.Adam(self.alpha_model.parameters(),
-                                                    lr=1e-3, eps=self.opti_eps,
+                                                    lr=5e-3, eps=self.opti_eps,
                                                     weight_decay=self.weight_decay)
         
 
         self.discriminator = R_Discriminator(args, self.z_obs_space, self.z_space, self.device) 
         self.discri_optimizer = torch.optim.Adam(self.discriminator.parameters(),
-                                                    lr=1e-4, eps=self.opti_eps,
+                                                    lr=self.discri_lr, eps=self.opti_eps,
                                                     weight_decay=self.weight_decay)
         
         self.local_discri = R_Discriminator(args, self.z_local_obs_space, self.z_space, self.device) 
         self.local_discri_optimizer = torch.optim.Adam(self.local_discri.parameters(),
-                                                    lr=self.lr, eps=self.opti_eps,
+                                                    lr=self.discri_lr, eps=self.opti_eps,
                                                     weight_decay=self.weight_decay)
 
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
@@ -66,19 +68,6 @@ class R_MAPPOPolicy:
                                                  lr=self.critic_lr,
                                                  eps=self.opti_eps,
                                                  weight_decay=self.weight_decay)
-
-    def lr_decay(self, episode, episodes):
-        """
-        Decay the actor and critic learning rates.
-        :param episode: (int) current training episode.
-        :param episodes: (int) total number of training episodes.
-        """
-        update_linear_schedule(self.discri_optimizer, episode, episodes, self.lr)
-        update_linear_schedule(self.local_discri_optimizer, episode, episodes, self.lr)
-        update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
-        update_linear_schedule(self.ex_critic_optimizer, episode, episodes, self.critic_lr)
-        update_linear_schedule(self.in_critic_optimizer, episode, episodes, self.critic_lr)
-        update_linear_schedule(self.alpha_optimizer, episode, episodes, self.critic_lr)
 
     def get_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_ex_critic, rnn_states_in_critic, \
                         masks, available_actions=None, deterministic=False):
@@ -121,19 +110,6 @@ class R_MAPPOPolicy:
 
         return ex_values, in_values
 
-    def get_ex_values(self, cent_obs, rnn_states_ex_critic, masks):
-        """
-        Get value function predictions.
-        :param cent_obs (np.ndarray): centralized input to the critic.
-        :param rnn_states_critic: (np.ndarray) if critic is RNN, RNN states for critic.
-        :param masks: (np.ndarray) denotes points at which RNN states should be reset.
-
-        :return values: (torch.Tensor) value function predictions.
-        """
-        ex_values, _ = self.ex_critic(cent_obs, rnn_states_ex_critic, masks)
-
-        return ex_values
-
     def evaluate_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_ex_critic, rnn_states_in_critic, \
                             action, masks, available_actions=None, active_masks=None):
         """
@@ -161,7 +137,7 @@ class R_MAPPOPolicy:
 
         return ex_values, in_values, action_log_probs, dist_entropy
 
-    def evaluate_z(self, cent_obs, rnn_states_z, masks, active_masks=None, isTrain=True):
+    def evaluate_z(self, cent_obs, rnn_states_z, masks, active_masks=None, isTrain=False):
         """
         Get action logprobs / entropy and value function predictions for actor update.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -183,22 +159,24 @@ class R_MAPPOPolicy:
         z_idxs = np.expand_dims(z_idx, -1)
         cent_obs = cent_obs[:,self.max_z:]
 
-        z_masks = None
-
-        # # for iteration
-        # if isTrain:
-        #     z_masks = None
-        # else:
-        #     z_masks = np.ones([self.max_z, self.max_z])
-        #     z_masks = np.tril(z_masks)
-        #     z_masks = z_masks[z_idx]
+        available_mask = None
+        # if isTrain is False:
+        #     available_mask = np.tril(np.ones(self.max_z))[z_idxs.squeeze(1)]
+        #     cent_obs = cent_obs + np.random.randn(*cent_obs.shape) / 10.
 
         action_log_probs, rnn_states_z = \
-            self.discriminator.evaluate_actions(cent_obs, rnn_states_z, z_idxs, masks, available_actions=z_masks, active_masks=active_masks)
+            self.discriminator.evaluate_actions(
+                cent_obs, 
+                rnn_states_z, 
+                z_idxs, masks, 
+                available_mask=available_mask, 
+                active_masks=active_masks,
+                isTrain=isTrain
+            )
 
         return action_log_probs, rnn_states_z
 
-    def evaluate_local_z(self, obs, rnn_states_z, masks, active_masks=None, isTrain=True):
+    def evaluate_local_z(self, obs, rnn_states_z, masks, active_masks=None):
         """
         Get action logprobs / entropy and value function predictions for actor update.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -219,18 +197,10 @@ class R_MAPPOPolicy:
         z_idxs = np.expand_dims(z_idx, -1)
         obs = obs[:,self.max_z:]
 
-        z_masks = None
-
-        # # for iteration
-        # if isTrain:
-        #     z_masks = None
-        # else:
-        #     z_masks = np.ones([self.max_z, self.max_z])
-        #     z_masks = np.tril(z_masks)
-        #     z_masks = z_masks[z_idx]
-
         action_log_probs, rnn_states_z = \
-            self.local_discri.evaluate_actions(obs, rnn_states_z, z_idxs, masks, available_actions=z_masks, active_masks=active_masks)
+            self.local_discri.evaluate_actions(
+                obs, rnn_states_z, z_idxs, masks, active_masks=active_masks
+            )
 
         return action_log_probs, rnn_states_z
 
@@ -244,7 +214,22 @@ class R_MAPPOPolicy:
                                   (if None, all actions available)
         :param deterministic: (bool) whether the action should be mode of distribution or should be sampled.
         """
-        actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
+        actions, _, rnn_states_actor = self.actor(
+            obs, rnn_states_actor, masks, available_actions, deterministic
+        )
         
         return actions, rnn_states_actor
+
+    # def lr_decay(self, episode, episodes):
+    #     """
+    #     Decay the actor and critic learning rates.
+    #     :param episode: (int) current training episode.
+    #     :param episodes: (int) total number of training episodes.
+    #     """
+    #     update_linear_schedule(self.discri_optimizer, episode, episodes, self.lr)
+    #     update_linear_schedule(self.local_discri_optimizer, episode, episodes, self.lr)
+    #     update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
+    #     update_linear_schedule(self.ex_critic_optimizer, episode, episodes, self.critic_lr)
+    #     update_linear_schedule(self.in_critic_optimizer, episode, episodes, self.critic_lr)
+    #     update_linear_schedule(self.alpha_optimizer, episode, episodes, self.critic_lr)
 

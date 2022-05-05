@@ -37,9 +37,12 @@ class Scenario(BaseScenario):
 
         # given initial states
         coor_agent = np.array([[0., 0.]])
-        coor_landm = np.array([[-0.9, -0.9], [0.9, 0.9]])
-        coor_agent += (np.random.random([1,2])-.5)*1e-4
-        coor_landm += (np.random.random([1,2])-.5)*1e-4
+        coor_landm = np.array([
+            [0., np.sqrt(2)], 
+            [0., -np.sqrt(2)], 
+            [np.sqrt(2), 0.], 
+            [-np.sqrt(2), 0.],
+        ])
         for i, agent in enumerate(world.agents):
             agent.state.p_pos = coor_agent[i]
             agent.state.p_vel = np.zeros(world.dim_p)
@@ -84,16 +87,14 @@ class Scenario(BaseScenario):
 
     def reward(self, agent, world):
         # Agents are rewarded based on minimum agent distance to each landmark
-        rew = []
-        for l in world.landmarks:
+        min_dis = 1e6
+        for i, l in enumerate(world.landmarks):
             for a in world.agents:
                 dist = np.sqrt(np.sum(np.square(a.state.p_pos - l.state.p_pos)))
-                rew.append(dist)
+                if dist < min_dis:
+                    min_dis = dist
 
-        min_r = min(rew)
-        # min_r = 0. if min_r>0.05 else min_r
-
-        return min_r
+        return -min_dis
 
     def observation(self, agent, world):
         # get positions of all entities in this agent's reference frame

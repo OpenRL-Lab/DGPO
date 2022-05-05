@@ -136,13 +136,13 @@ class SMACRunner(Runner):
             np.concatenate(self.buffer.share_obs[step+1]),
             np.concatenate(self.buffer.rnn_states_z[step]),
             np.concatenate(self.buffer.masks[step+1]),
-            isTrain=False,
+            # isTrain=False,
         )
         loc_z_log_prob, loc_rnn_state_z = self.trainer.policy.evaluate_local_z(
             np.concatenate(self.buffer.obs[step+1]),
             np.concatenate(self.buffer.loc_rnn_states_z[step]),
             np.concatenate(self.buffer.masks[step+1]),
-            isTrain=False,
+            # isTrain=False,
         )
         # [self.envs, agents, dim]
         z_log_probs = np.array(np.split(_t2n(z_log_prob), self.n_rollout_threads))

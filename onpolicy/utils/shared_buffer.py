@@ -151,8 +151,8 @@ class SharedReplayBuffer(object):
         for step in reversed(range(self.rewards.shape[0])):
             value_tp1 = ex_value_normalizer.denormalize(self.ex_value_preds[step+1])
             value_t = ex_value_normalizer.denormalize(self.ex_value_preds[step])
-            delta = self.rewards[step] + self.gamma * value_tp1 * self.masks[step+1] - value_t
-            gae = delta + self.gamma * self.gae_lambda * self.masks[step+1] * gae
+            delta = self.rewards[step] + self.gamma[0] * value_tp1 * self.masks[step+1] - value_t
+            gae = delta + self.gamma[0] * self.gae_lambda * self.masks[step+1] * gae
             self.ex_returns[step] = gae + value_t
 
         # intrinsic return 
@@ -163,8 +163,8 @@ class SharedReplayBuffer(object):
             rewards = self.z_log_probs[step] #* 2. - loc_r
             value_tp1 = in_value_normalizer.denormalize(self.in_value_preds[step+1])
             value_t = in_value_normalizer.denormalize(self.in_value_preds[step])
-            delta = rewards + self.gamma * value_tp1 * self.masks[step+1] - value_t
-            gae = delta + self.gamma * self.gae_lambda * self.masks[step+1] * gae
+            delta = rewards + self.gamma[1] * value_tp1 * self.masks[step+1] - value_t
+            gae = delta + self.gamma[1] * self.gae_lambda * self.masks[step+1] * gae
             self.in_returns[step] = gae + value_t
   
         """

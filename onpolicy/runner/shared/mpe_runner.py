@@ -129,7 +129,7 @@ class MPERunner(Runner):
             np.concatenate(self.buffer.obs[step+1]),
             np.concatenate(self.buffer.loc_rnn_states_z[step]),
             np.concatenate(self.buffer.masks[step+1]),
-            isTrain=False,
+            # isTrain=False,
         )
         # [self.envs, agents, dim]
         z_log_probs = np.array(np.split(_t2n(z_log_prob), self.n_rollout_threads))
@@ -254,8 +254,9 @@ class MPERunner(Runner):
         eval_all_obs = eval_all_obs.reshape([self.max_z,-1])
         eval_dis_mat = np.expand_dims(eval_all_obs, 0) - np.expand_dims(eval_all_obs, 1)
         eval_dis_mat = np.mean(eval_dis_mat**2, -1)
-        print("eval distance matrix: " + str(eval_dis_mat.mean()))
-        eval_env_infos['eval_pos_distance'] = eval_dis_mat.mean()
+        eval_dis_metric = eval_dis_mat.sum() / (self.max_z**2-self.max_z)
+        print("eval distance matrix: " + str(eval_dis_metric))
+        eval_env_infos['eval_pos_distance'] = eval_dis_metric
         self.log_env(eval_env_infos, total_num_steps)
 
     @torch.no_grad()

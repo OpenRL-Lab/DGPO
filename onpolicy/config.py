@@ -249,7 +249,7 @@ def get_config():
                         help='max norm of gradients (default: 0.5)')
     parser.add_argument("--use_gae", action='store_false',
                         default=True, help='use generalized advantage estimation')
-    parser.add_argument("--gamma", type=float, default=0.99, #, nargs='+',
+    parser.add_argument("--gamma", type=float, default=0.99, nargs='+',
                         help='discount factor for rewards (default: 0.99)')
     parser.add_argument("--gae_lambda", type=float, default=0.95,
                         help='gae lambda parameter (default: 0.95)')
@@ -287,5 +287,7 @@ def get_config():
 
     # vmapd para
     parser.add_argument("--max_z", type=int, default=2, help="the number of latent code z")
+    parser.add_argument("--div_thresh", type=float, default=0.2, help="diversity threshold")
+    parser.add_argument("--discri_lr", type=float, default=1e-4, help="discriminator lr")
 
     return parser

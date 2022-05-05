@@ -1,9 +1,11 @@
+from matplotlib.style import available
 import torch
 import torch.nn as nn
 import numpy as np
 from onpolicy.algorithms.utils.util import init, check
 from onpolicy.algorithms.utils.cnn import CNNBase
 from onpolicy.algorithms.utils.mlp import MLPBase
+from onpolicy.algorithms.utils.mlp import NoisyMLPBase
 from onpolicy.algorithms.utils.rnn import RNNLayer
 from onpolicy.algorithms.utils.act import ACTLayer
 from onpolicy.algorithms.utils.popart import PopArt
@@ -17,33 +19,22 @@ class AlphaModel(nn.Module):
         self.exp_coeff = nn.Parameter(torch.ones(1))
         self.alpha = 0.
 
-    def get_coeff_loss(self, target_value, value_now, z_idxs):
-        # self.exp_coeff.data.clamp_(1., 1e6)
-
-        # exp_coeff = check(self.exp_coeff).to(**self.tpdv)
-        # target_value = check(target_value).to(**self.tpdv)
-        # value_now = check(value_now).to(**self.tpdv)
-        # masks = check(z_idxs.copy()).to(**self.tpdv) != 0
-
-        # value_diff = value_now - target_value
-        # coeff_loss = exp_coeff * value_diff.detach() * masks.detach()
-        # coeff_loss = coeff_loss.sum() / masks.sum()
+    def get_coeff_loss(self, target_value, value_now):
 
         self.exp_coeff.data.clamp_(1., 1e6)
         exp_coeff = check(self.exp_coeff).to(**self.tpdv)
         target_value = check(target_value).to(**self.tpdv)
         value_now = check(value_now).to(**self.tpdv)
-        value_diff = value_now - target_value
+        value_diff = target_value - value_now 
         coeff_loss = exp_coeff * value_diff.detach()
 
         return coeff_loss.mean()
 
     def get_coeff(self):
-        return torch.ones(1)
-        # self.exp_coeff.data.clamp_(1., 1e6)
-        # with torch.no_grad():
-        #     coeff = torch.log(self.exp_coeff)
-        #     return coeff
+        self.exp_coeff.data.clamp_(1., 1e6)
+        with torch.no_grad():
+            coeff = torch.log(self.exp_coeff)
+            return coeff
 
 class R_Discriminator(nn.Module):
     """
@@ -64,50 +55,19 @@ class R_Discriminator(nn.Module):
         self._use_naive_recurrent_policy = args.use_naive_recurrent_policy
         self._use_recurrent_policy = args.use_recurrent_policy
         self._recurrent_N = args.recurrent_N
+        self.max_z = args.max_z
         self.tpdv = dict(dtype=torch.float32, device=device)
 
         # model 
         obs_shape = get_shape_from_obs_space(obs_space)
-        base = CNNBase if len(obs_shape) == 3 else MLPBase
+        base = CNNBase if len(obs_shape) == 3 else NoisyMLPBase
         self.base = base(args, obs_shape)
-
-        # if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-        #     self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
 
         self.act = ACTLayer(action_space, self.hidden_size, self._use_orthogonal, self._gain)
 
         self.to(device)
 
-    def forward(self, obs, rnn_states, masks, available_actions=None, deterministic=False):
-        """
-        Compute actions from the given inputs.
-        :param obs: (np.ndarray / torch.Tensor) observation inputs into network.
-        :param rnn_states: (np.ndarray / torch.Tensor) if RNN network, hidden states for RNN.
-        :param masks: (np.ndarray / torch.Tensor) mask tensor denoting if hidden states should be reinitialized to zeros.
-        :param available_actions: (np.ndarray / torch.Tensor) denotes which actions are available to agent
-                                                              (if None, all actions available)
-        :param deterministic: (bool) whether to sample from action distribution or return the mode.
-
-        :return actions: (torch.Tensor) actions to take.
-        :return action_log_probs: (torch.Tensor) log probabilities of taken actions.
-        :return rnn_states: (torch.Tensor) updated RNN hidden states.
-        """
-        obs = check(obs).to(**self.tpdv)
-        rnn_states = check(rnn_states).to(**self.tpdv)
-        masks = check(masks).to(**self.tpdv)
-        if available_actions is not None:
-            available_actions = check(available_actions).to(**self.tpdv)
-
-        actor_features = self.base(obs)
-
-        # if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-        #     actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
-
-        actions, action_log_probs = self.act(actor_features, available_actions, deterministic)
-
-        return actions, action_log_probs, rnn_states
-
-    def evaluate_actions(self, obs, rnn_states, action, masks, available_actions=None, active_masks=None):
+    def evaluate_actions(self, obs, rnn_states, action, masks, available_mask=None, active_masks=None, isTrain=False):
         """
         Compute log probability and entropy of given actions.
         :param obs: (torch.Tensor) observation inputs into network.
@@ -121,23 +81,52 @@ class R_Discriminator(nn.Module):
         :return action_log_probs: (torch.Tensor) log probabilities of the input actions.
         :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
         """
+        action_np = action.copy()
         obs = check(obs).to(**self.tpdv)
         rnn_states = check(rnn_states).to(**self.tpdv)
         action = check(action).to(**self.tpdv)
         masks = check(masks).to(**self.tpdv)
 
-        if available_actions is not None:
-            available_actions = check(available_actions).to(**self.tpdv)
+        if available_mask is not None:
+            available_mask = check(available_mask).to(**self.tpdv)
         if active_masks is not None:
             active_masks = check(active_masks).to(**self.tpdv)
+        active_masks = active_masks if self._use_policy_active_masks else None
+
         actor_features = self.base(obs)
 
-        # if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-        #     actor_features, rnn_states = self.rnn(actor_features, rnn_states, masks)
+        if isTrain:
 
-        active_masks = active_masks if self._use_policy_active_masks else None
-        action_log_probs, dist_entropy = \
-            self.act.evaluate_actions(actor_features, action, available_actions, active_masks=active_masks)
+            action_log_probs, dist_entropy = \
+                self.act.evaluate_actions(
+                    actor_features, 
+                    action, 
+                    available_actions=available_mask, 
+                    active_masks=active_masks
+                )
+        else:
+            
+            action_log_probs = []
+
+            for z in range(1, self.max_z):
+
+                idx1 = action_np.squeeze(1)
+                idx2 = (action_np.squeeze(1) + z) % self.max_z
+                available_mask = np.eye(self.max_z)[idx1] + np.eye(self.max_z)[idx2]
+                available_mask = check(available_mask).to(**self.tpdv)
+
+                action_log_prob, dist_entropy = \
+                    self.act.evaluate_actions(
+                        actor_features, 
+                        action, 
+                        available_actions=available_mask, 
+                        active_masks=active_masks
+                    )
+
+                action_log_probs.append(action_log_prob)
+
+            action_log_probs = torch.stack(action_log_probs)
+            action_log_probs = torch.min(action_log_probs, 0)[0]
 
         return action_log_probs, rnn_states
 
@@ -286,15 +275,15 @@ class R_in_Critic(nn.Module):
             self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
         
         self.z_base = MLPBase(args, (self._max_z,))
-        self.base2 = MLPBase(args, (self.hidden_size*2,))
+        # self.base2 = MLPBase(args, (self.hidden_size*2,))
 
         def init_(m):
             return init(m, init_method, lambda x: nn.init.constant_(x, 0))
 
         if self._use_popart:
-            self.v_out = init_(PopArt(self.hidden_size, 1, device=device))
+            self.v_out = init_(PopArt(self.hidden_size*2, 1, device=device))
         else:
-            self.v_out = init_(nn.Linear(self.hidden_size, 1))
+            self.v_out = init_(nn.Linear(self.hidden_size*2, 1))
 
         self.to(device)
 
@@ -319,7 +308,7 @@ class R_in_Critic(nn.Module):
     
         z_features = self.z_base(cent_obs[:,:self._max_z])
         critic_features = torch.cat([critic_features, z_features], -1)
-        critic_features = self.base2(critic_features)
+        # critic_features = self.base2(critic_features)
 
         values = self.v_out(critic_features)
 
