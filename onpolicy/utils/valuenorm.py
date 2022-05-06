@@ -69,8 +69,13 @@ class ValueNorm(nn.Module):
         return debiased_mean, debiased_var
 
     @torch.no_grad()
-    def get_z_mean(self, z):
-        return self.running_mean_z[z] / self.debiasing_term_z[z].clamp(min=self.epsilon)
+    def get_z_mean(self):
+        results = []
+        for z in range(self.max_z):
+            z_mean = self.running_mean_z[z] / self.debiasing_term_z[z].clamp(min=self.epsilon)
+            results.append(z_mean)
+        results = torch.cat(results)
+        return results
 
     @torch.no_grad()
     def update(self, input_vector, z_idxs):

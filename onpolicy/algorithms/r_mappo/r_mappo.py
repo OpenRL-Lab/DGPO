@@ -32,6 +32,7 @@ class R_MAPPO():
         self.max_z = args.max_z
         self.gamma = args.gamma
         self.div_thresh = args.div_thresh
+        self.rex_thresh = args.rex_thresh
 
         self._use_recurrent_policy = args.use_recurrent_policy
         self._use_naive_recurrent = args.use_naive_recurrent_policy
@@ -163,10 +164,6 @@ class R_MAPPO():
         in_L_clip = -torch.sum(torch.min(in_surr1, in_surr2), dim=-1, keepdim=True)
 
         # diver_mask = torch.exp(7.5 * z_log_probs.detach())
-        # diver_target = np.array([0.,0.67,0.5,0.5])[:self.max_z]
-        # diver_target = check(diver_target).to(**self.tpdv)
-        # diver_mask = (z_log_probs.detach() > torch.log(diver_target[z_idxs_batch]))
-        # diver_mask = in_return_batch.detach() > -math.log(1.9)/(1-self.gamma[1])
         diver_mask = z_log_probs.detach() > -math.log(self.div_thresh)
         
         for z in range(self.max_z):
@@ -176,10 +173,15 @@ class R_MAPPO():
         stage2_mask = check(self.zmask_cnt).to(**self.tpdv)
         stage2_mask = (stage2_mask > 0)
         stage2_mask = stage2_mask[z_idxs_batch]
+
+        cur_value = self.ex_value_normalizer.get_z_mean()
+        Rex_mask = (cur_value > self.rex_thresh) # -50, -3
+        Rex_mask = Rex_mask[z_idxs_batch]
             
         target = ex_L_clip * diver_mask 
-        target = target + in_L_clip * ~diver_mask * 0.1 * ~stage2_mask 
-        target = target - dist_entropy.unsqueeze(1) * ~diver_mask * 0.1 * ~stage2_mask
+        # target = target + in_L_clip * Rex_mask 
+        target = target + in_L_clip * ~diver_mask * 0.1 #* ~stage2_mask 
+        target = target - dist_entropy.unsqueeze(1) * ~diver_mask * 0.1 #* ~stage2_mask
 
         policy_loss = target - dist_entropy.mean() * self.entropy_coef
         policy_loss = (policy_loss * active_masks_batch).sum() / active_masks_batch.sum()
@@ -286,6 +288,7 @@ class R_MAPPO():
         train_info['z_loss'] = z_loss
         train_info['imp_weight'] = imp_weights.mean()
         train_info['diver_mask'] = (diver_mask*1.).mean()
+        train_info['cur_value'] = cur_value.mean()
         # for z in range(self.max_z):
         #     train_info['diver_mask_z{}'.format(z)] = self.zmask_cnt[z].mean()
         # train_info['in_return_batch'] = in_return_batch.mean()

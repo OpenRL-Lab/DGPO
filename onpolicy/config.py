@@ -288,6 +288,7 @@ def get_config():
     # vmapd para
     parser.add_argument("--max_z", type=int, default=2, help="the number of latent code z")
     parser.add_argument("--div_thresh", type=float, default=0.2, help="diversity threshold")
+    parser.add_argument("--rex_thresh", type=float, default=0.2, help="extrinsic rewards threshold")
     parser.add_argument("--discri_lr", type=float, default=1e-4, help="discriminator lr")
 
     return parser

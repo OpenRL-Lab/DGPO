@@ -15,6 +15,6 @@ do
     --map_name ${map} --seed ${my_seed} --num_agents ${num_agents} --n_training_threads 1 \
     --num_mini_batch 1 --num_env_steps 200000000 --ppo_epoch 10 --gamma 0.99 0.75 \
     --use_ReLU --use_value_active_masks --wandb_name "cwz19" --user_name "cwz19" \
-    --n_rollout_threads 32 --n_eval_rollout_threads 16 --episode_length 400 \
-    --use_eval --max_z 4
+    --n_rollout_threads 15 --n_eval_rollout_threads 9 --episode_length 400 \
+    --use_eval --max_z 3 --div_thresh 1.25 --discri_lr 1e-4
 done
