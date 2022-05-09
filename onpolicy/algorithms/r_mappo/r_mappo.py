@@ -209,9 +209,10 @@ class R_MAPPO():
             target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
             target = target + in_L_clip * ~diver_mask * 0.1 
             target = target - dist_entropy.unsqueeze(1) * ~diver_mask * 0.1 
-
+            
         policy_loss = target - dist_entropy.mean() * self.entropy_coef
         policy_loss = (policy_loss * active_masks_batch).sum() / active_masks_batch.sum()
+        
 
         self.policy.actor_optimizer.zero_grad()
 

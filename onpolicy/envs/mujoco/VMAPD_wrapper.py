@@ -22,7 +22,8 @@ class VMAPDWrapper(object):
             observation_space.shape = (observation_space.shape[0] + self.max_z,)
         for observation_space in self.share_observation_space:
             observation_space.shape = (observation_space.shape[0] + self.max_z,)
-    
+
+        
     def reset(self, fix_z=None):
         if fix_z is not None:
             self.cur_z = fix_z
