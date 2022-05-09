@@ -24,6 +24,7 @@ class R_MAPPOPolicy:
         self.lr = args.lr
         self.critic_lr = args.critic_lr
         self.discri_lr = args.discri_lr
+        self.alpha_lr = args.alpha_lr
         self.opti_eps = args.opti_eps
         self.weight_decay = args.weight_decay
         self.max_z = args.max_z
@@ -38,10 +39,9 @@ class R_MAPPOPolicy:
 
         self.alpha_model = AlphaModel(args) 
         self.alpha_optimizer = torch.optim.Adam(self.alpha_model.parameters(),
-                                                    lr=5e-3, eps=self.opti_eps,
+                                                    lr=self.alpha_lr, eps=self.opti_eps,
                                                     weight_decay=self.weight_decay)
         
-
         self.discriminator = R_Discriminator(args, self.z_obs_space, self.z_space, self.device) 
         self.discri_optimizer = torch.optim.Adam(self.discriminator.parameters(),
                                                     lr=self.discri_lr, eps=self.opti_eps,
@@ -163,7 +163,7 @@ class R_MAPPOPolicy:
         # if isTrain is False:
         #     available_mask = np.tril(np.ones(self.max_z))[z_idxs.squeeze(1)]
         #     cent_obs = cent_obs + np.random.randn(*cent_obs.shape) / 10.
-
+        
         action_log_probs, rnn_states_z = \
             self.discriminator.evaluate_actions(
                 cent_obs, 

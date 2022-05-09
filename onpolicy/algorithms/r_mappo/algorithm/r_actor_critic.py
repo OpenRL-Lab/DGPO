@@ -16,16 +16,15 @@ class AlphaModel(nn.Module):
         super(AlphaModel, self).__init__()
         self.tpdv = dict(dtype=torch.float32, device=device)
         self.max_z = args.max_z
-        self.exp_coeff = nn.Parameter(torch.ones(1))
-        self.alpha = 0.
+        self.target_value = args.rex_thresh
+        self.exp_coeff = nn.Parameter(torch.ones(self.max_z))
 
-    def get_coeff_loss(self, target_value, value_now):
+    def get_coeff_loss(self, value_now):
 
         self.exp_coeff.data.clamp_(1., 1e6)
         exp_coeff = check(self.exp_coeff).to(**self.tpdv)
-        target_value = check(target_value).to(**self.tpdv)
         value_now = check(value_now).to(**self.tpdv)
-        value_diff = target_value - value_now 
+        value_diff = self.target_value - value_now 
         coeff_loss = exp_coeff * value_diff.detach()
 
         return coeff_loss.mean()
@@ -56,6 +55,7 @@ class R_Discriminator(nn.Module):
         self._use_recurrent_policy = args.use_recurrent_policy
         self._recurrent_N = args.recurrent_N
         self.max_z = args.max_z
+        self.algo_name = args.algorithm_name
         self.tpdv = dict(dtype=torch.float32, device=device)
 
         # model 
@@ -95,7 +95,7 @@ class R_Discriminator(nn.Module):
 
         actor_features = self.base(obs)
 
-        if isTrain:
+        if isTrain or self.algo_name == "Div_objective":
 
             action_log_probs, dist_entropy = \
                 self.act.evaluate_actions(

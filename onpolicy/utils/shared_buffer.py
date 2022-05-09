@@ -73,7 +73,7 @@ class SharedReplayBuffer(object):
         self.action_log_probs = np.zeros(a_shape, dtype=np.float32)
 
         # data : discriminator
-        d_shape = (self.episode_length, self.n_rollout_threads, num_agents, act_shape)
+        d_shape = (self.episode_length, self.n_rollout_threads, num_agents, 1)
         self.z_log_probs = np.zeros(d_shape, dtype=np.float32)
         self.loc_z_log_probs = np.zeros(d_shape, dtype=np.float32)
 

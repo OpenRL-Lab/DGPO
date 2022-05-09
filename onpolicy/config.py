@@ -157,8 +157,16 @@ def get_config():
         description='onpolicy', formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # prepare parameters
-    parser.add_argument("--algorithm_name", type=str,
-                        default='mappo', choices=["rmappo", "mappo"])
+    parser.add_argument("--algorithm_name", type=str, default='MAPPO', choices=[
+        "MAPPO", 
+        "ours", 
+        "Non-Extrinsic-Reward-Constrained", 
+        "DIAYN_1", 
+        "DIAYN_2", 
+        "Div_objective", 
+        "Non-Diversity-guide", 
+        "2stages-Diversity-guide"
+    ])
 
     parser.add_argument("--experiment_name", type=str, default="check", help="an identifier to distinguish different experiment.")
     parser.add_argument("--seed", type=int, default=1, help="Random seed for numpy/torch")
@@ -290,5 +298,7 @@ def get_config():
     parser.add_argument("--div_thresh", type=float, default=0.2, help="diversity threshold")
     parser.add_argument("--rex_thresh", type=float, default=0.2, help="extrinsic rewards threshold")
     parser.add_argument("--discri_lr", type=float, default=1e-4, help="discriminator lr")
+    parser.add_argument("--alpha_lr", type=float, default=1e-4, help="alpha model lr")
+    parser.add_argument("--alpha", type=float, default=1e-4, help="alpha")
 
     return parser

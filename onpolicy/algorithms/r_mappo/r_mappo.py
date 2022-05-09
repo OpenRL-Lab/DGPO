@@ -19,6 +19,7 @@ class R_MAPPO():
         self.device = device
         self.tpdv = dict(dtype=torch.float32, device=device)
         self.policy = policy
+        self.algo_name = args.algorithm_name
 
         self.clip_param = args.clip_param
         self.ppo_epoch = args.ppo_epoch
@@ -33,6 +34,7 @@ class R_MAPPO():
         self.gamma = args.gamma
         self.div_thresh = args.div_thresh
         self.rex_thresh = args.rex_thresh
+        self.alpha_coeff = args.alpha
 
         self._use_recurrent_policy = args.use_recurrent_policy
         self._use_naive_recurrent = args.use_naive_recurrent_policy
@@ -58,6 +60,7 @@ class R_MAPPO():
             self.in_value_normalizer = None
 
         self.zmask_cnt = check(np.zeros(self.max_z)).to(**self.tpdv)
+        self.env_num = 0
 
 
     def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch, value_norm, z_idxs):
@@ -99,7 +102,7 @@ class R_MAPPO():
 
         return value_loss
 
-    def ppo_update(self, sample, train_info, update_actor=True, update_discri=True):
+    def ppo_update(self, sample, train_info, update_actor=True):
         """
         Update actor and critic networks.
         :param sample: (Tuple) contains data batch with which to update networks.
@@ -112,6 +115,8 @@ class R_MAPPO():
         :return actor_grad_norm: (torch.Tensor) gradient norm from actor update.
         :return imp_weights: (torch.Tensor) importance sampling weights.
         """
+        self.env_num += 1
+
         share_obs_batch, obs_batch, \
         rnn_states_batch, rnn_states_z_batch, loc_rnn_states_z_batch, \
         rnn_states_ex_critic_batch, rnn_states_in_critic_batch, \
@@ -177,11 +182,33 @@ class R_MAPPO():
         cur_value = self.ex_value_normalizer.get_z_mean()
         Rex_mask = (cur_value > self.rex_thresh) # -50, -3
         Rex_mask = Rex_mask[z_idxs_batch]
-            
-        target = ex_L_clip * diver_mask 
-        # target = target + in_L_clip * Rex_mask 
-        target = target + in_L_clip * ~diver_mask * 0.1 #* ~stage2_mask 
-        target = target - dist_entropy.unsqueeze(1) * ~diver_mask * 0.1 #* ~stage2_mask
+
+        # alpha = self.policy.alpha_model.get_coeff()
+        # alpha = check(alpha).to(**self.tpdv)
+        # alpha_z = alpha[z_idxs_batch]
+
+        if self.algo_name == "MAPPO":
+            target = ex_L_clip
+        elif self.algo_name == "DIAYN_1":
+            target = ex_L_clip + in_L_clip
+        elif self.algo_name == "DIAYN_2":
+            if self.env_num < 2500:
+                target = in_L_clip
+            else:
+                target = ex_L_clip
+        elif self.algo_name == "Non-Diversity-guide":
+            target = ex_L_clip * diver_mask 
+            target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
+        elif self.algo_name == "2stages-Diversity-guide":
+            target = ex_L_clip * diver_mask 
+            target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
+            target = target + in_L_clip * ~diver_mask * 0.1 * ~stage2_mask
+            target = target - dist_entropy.unsqueeze(1) * ~diver_mask * 0.1 * ~stage2_mask
+        else:
+            target = ex_L_clip * diver_mask 
+            target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
+            target = target + in_L_clip * ~diver_mask * 0.1 
+            target = target - dist_entropy.unsqueeze(1) * ~diver_mask * 0.1 
 
         policy_loss = target - dist_entropy.mean() * self.entropy_coef
         policy_loss = (policy_loss * active_masks_batch).sum() / active_masks_batch.sum()
@@ -265,9 +292,8 @@ class R_MAPPO():
         # self.policy.local_discri_optimizer.step()
 
         # # alpha model update
-        # cur_value = self.ex_value_normalizer.running_mean_var()[0].detach()
-        # target_value = torch.zeros([1]) - 50
-        # alpha_loss = self.policy.alpha_model.get_coeff_loss(target_value, cur_value)
+        # cur_value = self.ex_value_normalizer.get_z_mean()
+        # alpha_loss = self.policy.alpha_model.get_coeff_loss(cur_value)
 
         # self.policy.alpha_optimizer.zero_grad()
 
@@ -288,7 +314,10 @@ class R_MAPPO():
         train_info['z_loss'] = z_loss
         train_info['imp_weight'] = imp_weights.mean()
         train_info['diver_mask'] = (diver_mask*1.).mean()
-        train_info['cur_value'] = cur_value.mean()
+        train_info['Rex_mask'] = (Rex_mask*1.).mean()
+        for z in range(self.max_z):
+            train_info['cur_value_{}'.format(z)] = cur_value[z].mean()
+            # train_info['alpha_{}'.format(z)] = alpha[z].mean()
         # for z in range(self.max_z):
         #     train_info['diver_mask_z{}'.format(z)] = self.zmask_cnt[z].mean()
         # train_info['in_return_batch'] = in_return_batch.mean()
@@ -360,8 +389,7 @@ class R_MAPPO():
 
             for sample in data_generator:
 
-                update_discri = (epoch==self.ppo_epoch-1)
-                info = self.ppo_update(sample, update_actor, update_discri=update_discri)
+                info = self.ppo_update(sample, update_actor)
 
                 for key in info:
                     if key in train_info:

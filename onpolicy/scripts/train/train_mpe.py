@@ -67,12 +67,7 @@ def main(args):
     parser = get_config()
     all_args = parse_args(args, parser)
 
-    if all_args.algorithm_name == "rmappo":
-        assert (all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy), ("check recurrent policy!")
-    elif all_args.algorithm_name == "mappo":
-        assert (all_args.use_recurrent_policy == False and all_args.use_naive_recurrent_policy == False), ("check recurrent policy!")
-    else:
-        raise NotImplementedError
+    assert (all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy), ("check recurrent policy!")  
 
     assert (all_args.share_policy == True and all_args.scenario_name == 'simple_speaker_listener') == False, (
         "The simple_speaker_listener scenario can not use shared policy. Please check the config.py.")
@@ -103,7 +98,7 @@ def main(args):
                          entity=all_args.user_name,
                          notes=socket.gethostname(),
                          name=str(all_args.algorithm_name) + "_" +
-                         str(all_args.experiment_name) +
+                         str(all_args.scenario_name) +
                          "_seed" + str(all_args.seed),
                          group=all_args.scenario_name,
                          dir=str(run_dir),

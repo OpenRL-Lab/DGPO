@@ -11,15 +11,15 @@ import torch
 
 from onpolicy.config import get_config
 
-from onpolicy.envs.mpe.MPE_env import MPEEnv
-from onpolicy.envs.mpe.VMAPD_wrapper import VMAPDWrapper
+from onpolicy.envs.mujoco.MuJoCo_env import MuJocoEnv
+from onpolicy.envs.mujoco.VMAPD_wrapper import VMAPDWrapper
 from onpolicy.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
 
 def make_render_env(all_args):
     def get_env_fn(rank):
         def init_env():
-            if all_args.env_name == "MPE":
-                env = MPEEnv(all_args)
+            if all_args.env_name == "mujoco":
+                env = MuJocoEnv(all_args)
                 env = VMAPDWrapper(env, all_args.max_z, rank%all_args.max_z)
             else:
                 print("Can not support the " +
@@ -113,9 +113,9 @@ def main(args):
 
     # run experiments
     if all_args.share_policy:
-        from onpolicy.runner.shared.mpe_runner import MPERunner as Runner
+        from onpolicy.runner.shared.mujoco_runner import MujocoRunner as Runner
     else:
-        from onpolicy.runner.separated.mpe_runner import MPERunner as Runner
+        raise NotImplementedError
 
     runner = Runner(config)
     runner.render()

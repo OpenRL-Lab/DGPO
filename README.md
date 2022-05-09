@@ -14,6 +14,10 @@ This repository is heavily based on https://github.com/ikostrikov/pytorch-a2c-pp
 - [Multiagent Particle-World Environments (MPEs)](https://github.com/openai/multiagent-particle-envs)
 - [Google Research Football (GRF)](https://github.com/google-research/football)
 
+
+
+
+
 ## 1. Usage
 **WARNING: by default all experiments assume a shared policy by all agents i.e. there is one neural network shared by all agents**
 
@@ -36,6 +40,10 @@ used in the paper; however, please refer to the appendix for a full list of hype
 ## 2. Installation
 
  Here we give an example installation on CUDA == 10.1. For non-GPU & other CUDA version installation, please refer to the [PyTorch website](https://pytorch.org/get-started/locally/).
+
+```
+pip install torch matplotlib tensorboardX gym pysc2 absl-py
+```
 
 ``` Bash
 # create conda environment
