@@ -165,7 +165,8 @@ def get_config():
         "DIAYN_2", 
         "Div_objective", 
         "Non-Diversity-guide", 
-        "2stages-Diversity-guide"
+        "2stages-Diversity-guide",
+        "Non-Diversity-constrained"
     ])
 
     parser.add_argument("--experiment_name", type=str, default="check", help="an identifier to distinguish different experiment.")

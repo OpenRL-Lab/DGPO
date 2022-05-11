@@ -69,6 +69,19 @@ class R_MAPPOPolicy:
                                                  eps=self.opti_eps,
                                                  weight_decay=self.weight_decay)
 
+    def lr_decay(self, episode, episodes):
+        """
+        Decay the actor and critic learning rates.
+        :param episode: (int) current training episode.
+        :param episodes: (int) total number of training episodes.
+        """
+        update_linear_schedule(self.discri_optimizer, episode, episodes, self.discri_lr)
+        update_linear_schedule(self.local_discri_optimizer, episode, episodes, self.discri_lr)
+        update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
+        update_linear_schedule(self.ex_critic_optimizer, episode, episodes, self.critic_lr)
+        update_linear_schedule(self.in_critic_optimizer, episode, episodes, self.critic_lr)
+        update_linear_schedule(self.alpha_optimizer, episode, episodes, self.alpha_lr)
+
     def get_actions(self, cent_obs, obs, rnn_states_actor, rnn_states_ex_critic, rnn_states_in_critic, \
                         masks, available_actions=None, deterministic=False):
         """
@@ -219,17 +232,4 @@ class R_MAPPOPolicy:
         )
         
         return actions, rnn_states_actor
-
-    # def lr_decay(self, episode, episodes):
-    #     """
-    #     Decay the actor and critic learning rates.
-    #     :param episode: (int) current training episode.
-    #     :param episodes: (int) total number of training episodes.
-    #     """
-    #     update_linear_schedule(self.discri_optimizer, episode, episodes, self.lr)
-    #     update_linear_schedule(self.local_discri_optimizer, episode, episodes, self.lr)
-    #     update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
-    #     update_linear_schedule(self.ex_critic_optimizer, episode, episodes, self.critic_lr)
-    #     update_linear_schedule(self.in_critic_optimizer, episode, episodes, self.critic_lr)
-    #     update_linear_schedule(self.alpha_optimizer, episode, episodes, self.critic_lr)
 
