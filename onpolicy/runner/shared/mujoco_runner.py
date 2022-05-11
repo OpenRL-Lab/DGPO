@@ -246,12 +246,12 @@ class MujocoRunner(Runner):
             if (finish_time_step>0).all():
                 break
 
-        eval_episode_rewards = np.array(eval_episode_rewards)
+        eval_episode_rewards = np.array(eval_episode_rewards).sum(0)
         eval_env_infos = {}
-        eval_env_infos['eval_average_episode_rewards'] = np.mean(eval_episode_rewards/finish_time_step)
-        eval_average_episode_rewards = np.mean(eval_env_infos['eval_average_episode_rewards'])
+        eval_env_infos['eval_average_episode_rewards'] = np.mean(eval_episode_rewards)
+        eval_average_episode_rewards = eval_env_infos['eval_average_episode_rewards']
         eval_env_infos['eval_average_episode_length'] = np.mean(finish_time_step)
-        eval_average_episode_length = np.mean(eval_env_infos['eval_average_episode_length'])
+        eval_average_episode_length = eval_env_infos['eval_average_episode_length']
         print("eval average episode rewards {:.4f} eval_average_episode_length: {:.1f}"
             .format(
                 eval_average_episode_rewards,
@@ -272,8 +272,6 @@ class MujocoRunner(Runner):
 
         envs = self.envs
         all_frames = []
-        all_traj = []
-
         for z in range(self.max_z):
 
             self.envs.seed(self.seed)
@@ -289,7 +287,6 @@ class MujocoRunner(Runner):
             rnn_states = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
             masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
             episode_rewards = []
-            z_traj = []
             
             for _ in range(self.episode_length):
 
@@ -303,12 +300,11 @@ class MujocoRunner(Runner):
                 actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
                 rnn_states = np.array(np.split(_t2n(rnn_states), self.n_rollout_threads))
 
-                actions_env = actions
+                actions_env = actions   
 
                 # Obser reward and next obs
                 obs, rewards, dones, infos = envs.step(actions_env)
                 episode_rewards.append(rewards)
-                z_traj.append(obs[0,:,self.max_z+2:self.max_z+4])
 
                 rnn_states[dones == True] = np.zeros(((dones == True).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
                 masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
@@ -316,17 +312,15 @@ class MujocoRunner(Runner):
 
                 if self.all_args.save_gifs:
                     image = envs.render(mode='rgb_array')
-                    # cv2.putText(image, str(z), (5, 25), cv2.FONT_HERSHEY_COMPLEX, 1.0, (0,0,0), 3)
                     all_frames.append(image)
                 else:
                     envs.render('human')
                 
                 if dones.all():
                     break
-
+            
             avg_rewards = np.sum(np.array(episode_rewards))
             print("average episode rewards is: " + str(avg_rewards))
-            all_traj.append(z_traj)
 
         if self.all_args.save_gifs:
             video_dir = str(self.gif_dir) + '/render.avi'
