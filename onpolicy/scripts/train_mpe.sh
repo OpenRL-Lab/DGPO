@@ -1,9 +1,9 @@
 #!/bin/sh
 env="MPE"
-scenario="simple_spread_fix" 
-num_landmarks=3
-num_agents=3
-algo="Non-Diversity-constrained"
+scenario="simple_spread_one_fix" 
+num_landmarks=4
+num_agents=1
+algo="SMEPL"
 exp="exp"
 seed_max=5
 
@@ -17,6 +17,6 @@ do
     --n_rollout_threads 128 --n_eval_rollout_threads 168 --episode_length 15 \
     --num_env_steps 1000000 --ppo_epoch 10 --use_ReLU --gamma 0.99 0.99 \
     --wandb_name "cwz19" --user_name "cwz19" --eval_interval 15 \
-    --max_z 3 --div_thresh 2. --rex_thresh -42 --discri_lr 1e-4 --alpha 5. \
+    --max_z 4 --div_thresh 1.25 --rex_thresh -2.5 --discri_lr 1e-4 --alpha 2.5 \
     --use_eval
 done
