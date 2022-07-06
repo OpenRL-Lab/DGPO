@@ -95,7 +95,7 @@ class R_Discriminator(nn.Module):
 
         actor_features = self.base(obs)
 
-        if isTrain or self.algo_name == "Div_objective":
+        if isTrain or self.algo_name in ["Div_objective", "SMEPL", "DAIYN_1", "DIAYN_2"]:
 
             action_log_probs, dist_entropy = \
                 self.act.evaluate_actions(

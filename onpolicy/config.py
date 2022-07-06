@@ -166,7 +166,8 @@ def get_config():
         "Div_objective", 
         "Non-Diversity-guide", 
         "2stages-Diversity-guide",
-        "Non-Diversity-constrained"
+        "Non-Diversity-constrained",
+        "SMEPL"
     ])
 
     parser.add_argument("--experiment_name", type=str, default="check", help="an identifier to distinguish different experiment.")
@@ -301,5 +302,6 @@ def get_config():
     parser.add_argument("--discri_lr", type=float, default=1e-4, help="discriminator lr")
     parser.add_argument("--alpha_lr", type=float, default=1e-4, help="alpha model lr")
     parser.add_argument("--alpha", type=float, default=1e-4, help="alpha")
+    parser.add_argument("--sdpo_entropy_coeff", type=float, default=1e-2, help="sdpo_entropy_coeff")
 
     return parser

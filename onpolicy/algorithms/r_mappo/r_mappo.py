@@ -35,6 +35,7 @@ class R_MAPPO():
         self.div_thresh = args.div_thresh
         self.rex_thresh = args.rex_thresh
         self.alpha_coeff = args.alpha
+        self.sdpo_entropy_coeff = args.sdpo_entropy_coeff
 
         self._use_recurrent_policy = args.use_recurrent_policy
         self._use_naive_recurrent = args.use_naive_recurrent_policy
@@ -192,7 +193,7 @@ class R_MAPPO():
         elif self.algo_name == "DIAYN_1":
             target = ex_L_clip + in_L_clip
         elif self.algo_name == "DIAYN_2":
-            if self.env_num < 2500:
+            if self.env_num < 2000:
                 target = in_L_clip
             else:
                 target = ex_L_clip
@@ -204,11 +205,14 @@ class R_MAPPO():
             target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
             target = target + in_L_clip * ~diver_mask * 0.1 * ~stage2_mask
             target = target - dist_entropy.unsqueeze(1) * ~diver_mask * 0.1 * ~stage2_mask
+        elif self.algo_name == "SMEPL":
+            target = ex_L_clip 
+            target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
         else:
             target = ex_L_clip * diver_mask 
             target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
             target = target + in_L_clip * ~diver_mask * 0.1 
-            target = target - dist_entropy.unsqueeze(1) * ~diver_mask * 0.1 
+            target = target - dist_entropy.unsqueeze(1) * ~diver_mask * self.sdpo_entropy_coeff 
 
         policy_loss = target - dist_entropy.mean() * self.entropy_coef
         policy_loss = (policy_loss * active_masks_batch).sum() / active_masks_batch.sum()
