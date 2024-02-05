@@ -36,9 +36,6 @@ class MPERunner(Runner):
                 # Obser reward and next obs
                 obs, rewards, dones, infos = self.envs.step(actions_env)
 
-                # # soft learning
-                # rewards -= action_log_probs
-
                 # insert data into buffer
                 data = dict()
                 data['obs'] = obs
