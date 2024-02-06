@@ -301,7 +301,8 @@ def get_config():
     parser.add_argument("--rex_thresh", type=float, default=0.2, help="extrinsic rewards threshold")
     parser.add_argument("--discri_lr", type=float, default=1e-4, help="discriminator lr")
     parser.add_argument("--alpha_lr", type=float, default=1e-4, help="alpha model lr")
-    parser.add_argument("--alpha", type=float, default=1e-4, help="alpha")
+    parser.add_argument("--alpha_div", type=float, default=1e-4, help="alpha")
+    parser.add_argument("--alpha_rex", type=float, default=1e-4, help="alpha")
     parser.add_argument("--sdpo_entropy_coeff", type=float, default=1e-2, help="sdpo_entropy_coeff")
 
     return parser

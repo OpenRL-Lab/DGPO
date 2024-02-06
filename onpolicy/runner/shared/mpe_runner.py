@@ -52,12 +52,10 @@ class MPERunner(Runner):
                 self.insert(data, step)
 
                 # VMAPD
-                z_log_probs, loc_z_log_probs, rnn_states_z, loc_rnn_states_z = self.VMAPD_collect(step)
+                z_log_probs, rnn_states_z = self.DGPO_collect(step)
                 data = dict()
                 data['rnn_states_z'] = rnn_states_z
-                data['loc_rnn_states_z'] = loc_rnn_states_z
                 data['z_log_probs'] = z_log_probs
-                data['loc_z_log_probs'] = loc_z_log_probs
                 data['dones'] = dones
                 self.insert(data, step)
                 
@@ -114,7 +112,7 @@ class MPERunner(Runner):
         self.buffer.share_obs[0] = share_obs.copy()
 
     @torch.no_grad()
-    def VMAPD_collect(self, step):
+    def DGPO_collect(self, step):
         self.trainer.prep_rollout()
         z_log_prob, rnn_state_z = self.trainer.policy.evaluate_z(
             np.concatenate(self.buffer.share_obs[step+1]),
@@ -122,19 +120,11 @@ class MPERunner(Runner):
             np.concatenate(self.buffer.masks[step+1]),
             isTrain=False,
         )
-        loc_z_log_prob, loc_rnn_state_z = self.trainer.policy.evaluate_local_z(
-            np.concatenate(self.buffer.obs[step+1]),
-            np.concatenate(self.buffer.loc_rnn_states_z[step]),
-            np.concatenate(self.buffer.masks[step+1]),
-            # isTrain=False,
-        )
         # [self.envs, agents, dim]
         z_log_probs = np.array(np.split(_t2n(z_log_prob), self.n_rollout_threads))
         rnn_states_z = np.array(np.split(_t2n(rnn_state_z), self.n_rollout_threads))
-        loc_z_log_probs = np.array(np.split(_t2n(loc_z_log_prob), self.n_rollout_threads))
-        loc_rnn_states_z = np.array(np.split(_t2n(loc_rnn_state_z), self.n_rollout_threads))
 
-        return z_log_probs, loc_z_log_probs, rnn_states_z, loc_rnn_states_z
+        return z_log_probs, rnn_states_z
 
     @torch.no_grad()
     def collect(self, step):
@@ -177,9 +167,6 @@ class MPERunner(Runner):
                 np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
         if 'rnn_states_z' in data:
             data['rnn_states_z'][dones] = \
-                np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
-        if 'loc_rnn_states_z' in data:
-            data['loc_rnn_states_z'][dones] = \
                 np.zeros(((dones).sum(), self.recurrent_N, self.hidden_size), dtype=np.float32)
 
         data['masks'] = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)

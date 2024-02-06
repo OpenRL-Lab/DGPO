@@ -34,7 +34,8 @@ class R_MAPPO():
         self.gamma = args.gamma
         self.div_thresh = args.div_thresh
         self.rex_thresh = args.rex_thresh
-        self.alpha_coeff = args.alpha
+        self.alpha_rex_coeff = args.alpha_rex
+        self.alpha_div_coeff = args.alpha_div
         self.sdpo_entropy_coeff = args.sdpo_entropy_coeff
 
         self._use_recurrent_policy = args.use_recurrent_policy
@@ -59,8 +60,7 @@ class R_MAPPO():
         else:
             self.ex_value_normalizer = None
             self.in_value_normalizer = None
-
-        self.zmask_cnt = check(np.zeros(self.max_z)).to(**self.tpdv)
+        
         self.env_num = 0
 
 
@@ -169,50 +169,19 @@ class R_MAPPO():
         in_surr2 = torch.clamp(imp_weights, 1.-self.clip_param, 1.+self.clip_param) * in_adv_targ
         in_L_clip = -torch.sum(torch.min(in_surr1, in_surr2), dim=-1, keepdim=True)
 
-        # diver_mask = torch.exp(7.5 * z_log_probs.detach())
-        diver_mask = z_log_probs.detach() > -math.log(self.div_thresh)
-        
-        for z in range(self.max_z):
-            zmask_cnt = diver_mask.flatten() * (z_idxs_batch==z).flatten()
-            self.zmask_cnt[z] = (zmask_cnt*1.).mean().detach()
-
-        stage2_mask = check(self.zmask_cnt).to(**self.tpdv)
-        stage2_mask = (stage2_mask > 0)
-        stage2_mask = stage2_mask[z_idxs_batch]
+        diver_mask = z_log_probs.detach() > math.log(self.div_thresh)
 
         cur_value = self.ex_value_normalizer.get_z_mean()
         Rex_mask = (cur_value > self.rex_thresh) # -50, -3
         Rex_mask = Rex_mask[z_idxs_batch]
 
-        # alpha = self.policy.alpha_model.get_coeff()
-        # alpha = check(alpha).to(**self.tpdv)
-        # alpha_z = alpha[z_idxs_batch]
-
         if self.algo_name == "MAPPO":
             target = ex_L_clip
-        elif self.algo_name == "DIAYN_1":
-            target = ex_L_clip + in_L_clip
-        elif self.algo_name == "DIAYN_2":
-            if self.env_num < 2000:
-                target = in_L_clip
-            else:
-                target = ex_L_clip
-        elif self.algo_name == "Non-Diversity-guide":
-            target = ex_L_clip * diver_mask 
-            target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
-        elif self.algo_name == "2stages-Diversity-guide":
-            target = ex_L_clip * diver_mask 
-            target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
-            target = target + in_L_clip * ~diver_mask * 0.1 * ~stage2_mask
-            target = target - dist_entropy.unsqueeze(1) * ~diver_mask * 0.1 * ~stage2_mask
-        elif self.algo_name == "SMEPL":
-            target = ex_L_clip 
-            target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
         else:
             target = ex_L_clip * diver_mask 
-            target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_coeff
-            target = target + in_L_clip * ~diver_mask * 0.1 
-            target = target - dist_entropy.unsqueeze(1) * ~diver_mask * self.sdpo_entropy_coeff 
+            target = target + in_L_clip * Rex_mask * (self.env_num>100) * self.alpha_rex_coeff
+            target = target + in_L_clip * ~diver_mask * self.alpha_div_coeff
+            # target = target - dist_entropy.unsqueeze(1) * ~diver_mask * self.sdpo_entropy_coeff 
 
         policy_loss = target - dist_entropy.mean() * self.entropy_coef
         policy_loss = (policy_loss * active_masks_batch).sum() / active_masks_batch.sum()
@@ -277,38 +246,6 @@ class R_MAPPO():
             z_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
 
         self.policy.discri_optimizer.step()
-    
-        # # local discriminator update
-        # loc_z_log_probs, _ = self.policy.evaluate_local_z(
-        #     obs_batch, loc_rnn_states_z_batch, masks_batch, active_masks=active_masks_batch, isTrain=True)
-        
-        # loc_z_loss = -torch.mean(loc_z_log_probs)
-
-        # self.policy.local_discri_optimizer.zero_grad()
-
-        # loc_z_loss.backward()
-
-        # if self._use_max_grad_norm:
-        #     loc_z_grad_norm = nn.utils.clip_grad_norm_(self.policy.discriminator.parameters(), self.max_grad_norm)
-        # else:
-        #     loc_z_grad_norm = get_gard_norm(self.policy.discriminator.parameters())
-            
-        # self.policy.local_discri_optimizer.step()
-
-        # # alpha model update
-        # cur_value = self.ex_value_normalizer.get_z_mean()
-        # alpha_loss = self.policy.alpha_model.get_coeff_loss(cur_value)
-
-        # self.policy.alpha_optimizer.zero_grad()
-
-        # alpha_loss.backward()
-
-        # if self._use_max_grad_norm:
-        #     alpha_grad_norm = nn.utils.clip_grad_norm_(self.policy.alpha_model.parameters(), self.max_grad_norm)
-        # else:
-        #     alpha_grad_norm = get_gard_norm(self.policy.alpha_model.parameters())
-            
-        # self.policy.alpha_optimizer.step()
 
         train_info = dict()
         train_info['ex_value_loss'] = ex_value_loss
@@ -321,18 +258,6 @@ class R_MAPPO():
         train_info['Rex_mask'] = (Rex_mask*1.).mean()
         for z in range(self.max_z):
             train_info['cur_value_{}'.format(z)] = cur_value[z].mean()
-            # train_info['alpha_{}'.format(z)] = alpha[z].mean()
-        # for z in range(self.max_z):
-        #     train_info['diver_mask_z{}'.format(z)] = self.zmask_cnt[z].mean()
-        # train_info['in_return_batch'] = in_return_batch.mean()
-        # train_info['alpha_loss'] = alpha_loss
-        # train_info['alpha'] = alpha.mean()
-        # train_info['ex_critic_grad_norm'] = ex_critic_grad_norm
-        # train_info['in_critic_grad_norm'] = in_critic_grad_norm
-        # train_info['actor_grad_norm'] = actor_grad_norm
-        # train_info['loc_z_grad_norm'] = loc_z_grad_norm
-        # train_info['z_grad_norm'] = z_grad_norm
-        # train_info['alpha_grad_norm'] = alpha_grad_norm
 
         return train_info
 
